@@ -244,6 +244,102 @@
         "createdAt",
         "updatedAt"
       ]
+    },
+    "ExchangeRating": {
+      "title": "ExchangeRating",
+      "description": "Public 1-5 star rating and optional comment submitted after a Fulfilled exchange between borrower and lender.",
+      "type": "object",
+      "properties": {
+        "requestId": {
+          "type": "string",
+          "description": "ID of the Fulfilled campusRequest document.",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "exchangeSummary": {
+          "type": "string",
+          "description": "Short non-private summary of the completed exchange (item title or request description).",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "raterId": {
+          "type": "string",
+          "description": "Firebase Auth UID of the student who wrote the rating.",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "raterName": {
+          "type": "string",
+          "description": "Display name of the rating author (no phone numbers).",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "raterRole": {
+          "type": "string",
+          "description": "Role of the rating author in the fulfilled exchange.",
+          "enum": ["borrower", "lender"],
+          "minLength": 6,
+          "maxLength": 8
+        },
+        "rateeId": {
+          "type": "string",
+          "description": "Firebase Auth UID of the student being rated.",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "rateeName": {
+          "type": "string",
+          "description": "Display name of the student being rated.",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "score": {
+          "type": "integer",
+          "description": "Integer star rating from 1 to 5."
+        },
+        "comment": {
+          "type": "string",
+          "description": "Optional short written comment about the completed exchange.",
+          "minLength": 0,
+          "maxLength": 300
+        },
+        "isEdited": {
+          "type": "boolean",
+          "description": "True if the author edited the rating within the 24-hour edit window."
+        },
+        "visibility": {
+          "type": "string",
+          "description": "Campus visibility scope used for scoped public rating queries.",
+          "enum": ["campus"],
+          "minLength": 6,
+          "maxLength": 6
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when the rating was submitted."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when the rating was last updated."
+        }
+      },
+      "required": [
+        "requestId",
+        "exchangeSummary",
+        "raterId",
+        "raterName",
+        "raterRole",
+        "rateeId",
+        "rateeName",
+        "score",
+        "comment",
+        "isEdited",
+        "visibility",
+        "createdAt",
+        "updatedAt"
+      ]
     }
   },
   "firestore": {
@@ -262,6 +358,10 @@
     "/campusRequests/{requestId}": {
       "schema": "CampusRequest",
       "description": "Shared student requests with atomic acceptance and fulfillment tracking."
+    },
+    "/exchangeRatings/{ratingId}": {
+      "schema": "ExchangeRating",
+      "description": "Public exchange ratings visible to all signed-in users without private contact details."
     }
   }
 }

@@ -45,6 +45,12 @@ function toMillis(value: unknown): number {
   return value instanceof Timestamp ? value.toMillis() : Date.now();
 }
 
+export interface NewRequestAlert {
+  id: string;
+  requesterName: string;
+  description: string;
+}
+
 export function useCampusItems(user: CampusUser, userPhone: string | null, isAdmin: boolean) {
   const [sharedItems, setSharedItems] = useState<CampusItem[]>([]);
   const [sharedRequests, setSharedRequests] = useState<CampusRequest[]>([]);
@@ -55,6 +61,7 @@ export function useCampusItems(user: CampusUser, userPhone: string | null, isAdm
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [itemsError, setItemsError] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [newRequestAlert, setNewRequestAlert] = useState<NewRequestAlert | null>(null);
 
   const isBackendConfigured = Boolean(db && isFirebaseConfigured);
 
@@ -131,6 +138,37 @@ export function useCampusItems(user: CampusUser, userPhone: string | null, isAdm
     const unsubscribeRequests = onSnapshot(
       requestsQuery,
       (snapshot) => {
+        const wasAlreadyLoaded = requestsLoaded;
+
+        if (wasAlreadyLoaded) {
+          const addedOpenFromOthers = snapshot
+            .docChanges()
+            .filter((change) => change.type === 'added')
+            .map((change) => ({
+              id: change.doc.id,
+              data: change.doc.data(),
+            }))
+            .filter(
+              ({ data }) =>
+                data.status === 'Open' &&
+                typeof data.requesterId === 'string' &&
+                data.requesterId !== user.uid
+            );
+
+          if (addedOpenFromOthers.length > 0) {
+            const latest = addedOpenFromOthers[addedOpenFromOthers.length - 1];
+            setNewRequestAlert({
+              id: latest.id,
+              requesterName:
+                typeof latest.data.requesterName === 'string' && latest.data.requesterName.trim()
+                  ? latest.data.requesterName
+                  : 'A fellow student',
+              description:
+                typeof latest.data.description === 'string' ? latest.data.description : 'New request',
+            });
+          }
+        }
+
         const loaded: CampusRequest[] = snapshot.docs.map((docSnap) => {
           const data = docSnap.data();
           return {
@@ -534,6 +572,10 @@ export function useCampusItems(user: CampusUser, userPhone: string | null, isAdm
     setStatusMessage(null);
   }, []);
 
+  const dismissNewRequestAlert = useCallback(() => {
+    setNewRequestAlert(null);
+  }, []);
+
   return {
     allItems,
     sharedRequests,
@@ -546,6 +588,7 @@ export function useCampusItems(user: CampusUser, userPhone: string | null, isAdm
     deletingId,
     itemsError,
     statusMessage,
+    newRequestAlert,
     addItem,
     deleteItem,
     createRequest,
@@ -553,5 +596,6 @@ export function useCampusItems(user: CampusUser, userPhone: string | null, isAdm
     fulfillRequest,
     clearItemsError,
     clearStatusMessage,
+    dismissNewRequestAlert,
   };
 }

@@ -230,6 +230,106 @@ service cloud.firestore {
         && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt']);
     }
 
+    function isValidExchangeRating(data) {
+      return data.keys().hasAll([
+          'requestId',
+          'exchangeSummary',
+          'raterId',
+          'raterName',
+          'raterRole',
+          'rateeId',
+          'rateeName',
+          'score',
+          'comment',
+          'isEdited',
+          'visibility',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'requestId',
+          'exchangeSummary',
+          'raterId',
+          'raterName',
+          'raterRole',
+          'rateeId',
+          'rateeName',
+          'score',
+          'comment',
+          'isEdited',
+          'visibility',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.requestId is string
+        && isValidId(data.requestId)
+        && data.exchangeSummary is string
+        && data.exchangeSummary.size() >= 1
+        && data.exchangeSummary.size() <= 120
+        && data.raterId is string
+        && isValidId(data.raterId)
+        && data.raterId == request.auth.uid
+        && data.raterName is string
+        && data.raterName.size() >= 1
+        && data.raterName.size() <= 80
+        && data.raterRole is string
+        && data.raterRole.size() >= 6
+        && data.raterRole.size() <= 8
+        && data.raterRole in ['borrower', 'lender']
+        && data.rateeId is string
+        && isValidId(data.rateeId)
+        && data.rateeId != data.raterId
+        && data.rateeName is string
+        && data.rateeName.size() >= 1
+        && data.rateeName.size() <= 80
+        && data.score is int
+        && data.score >= 1
+        && data.score <= 5
+        && data.comment is string
+        && data.comment.size() >= 0
+        && data.comment.size() <= 300
+        && data.isEdited is bool
+        && data.visibility is string
+        && data.visibility.size() == 6
+        && data.visibility == 'campus'
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidFulfilledExchangeParticipant(data) {
+      return exists(/databases/$(database)/documents/campusRequests/$(data.requestId))
+        && get(/databases/$(database)/documents/campusRequests/$(data.requestId)).data.status == 'Fulfilled'
+        && (
+          (
+            data.raterRole == 'borrower'
+            && data.raterId == get(/databases/$(database)/documents/campusRequests/$(data.requestId)).data.requesterId
+            && data.rateeId == get(/databases/$(database)/documents/campusRequests/$(data.requestId)).data.acceptedById
+          )
+          || (
+            data.raterRole == 'lender'
+            && data.raterId == get(/databases/$(database)/documents/campusRequests/$(data.requestId)).data.acceptedById
+            && data.rateeId == get(/databases/$(database)/documents/campusRequests/$(data.requestId)).data.requesterId
+          )
+        );
+    }
+
+    function isEditRatingAction() {
+      return existing().raterId == request.auth.uid
+        && request.time < existing().createdAt + duration.value(24, 'h')
+        && incoming().requestId == existing().requestId
+        && incoming().exchangeSummary == existing().exchangeSummary
+        && incoming().raterId == existing().raterId
+        && incoming().raterName == existing().raterName
+        && incoming().raterRole == existing().raterRole
+        && incoming().rateeId == existing().rateeId
+        && incoming().rateeName == existing().rateeName
+        && incoming().visibility == existing().visibility
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().isEdited == true
+        && incoming().diff(existing()).affectedKeys().hasOnly(['score', 'comment', 'isEdited', 'updatedAt']);
+    }
+
     match /users/{userId} {
       allow get: if isSignedIn() && isValidId(userId) && userId == request.auth.uid;
       allow list: if false;
@@ -291,6 +391,24 @@ service cloud.firestore {
       allow delete: if isVerifiedUser()
         && isValidId(requestId)
         && (existing().requesterId == request.auth.uid || isAdmin());
+    }
+
+    match /exchangeRatings/{ratingId} {
+      allow get: if isSignedIn() && isValidId(ratingId) && existing().visibility == 'campus';
+      allow list: if isSignedIn() && existing().visibility == 'campus';
+      allow create: if isVerifiedUser()
+        && isValidId(ratingId)
+        && isValidExchangeRating(incoming())
+        && ratingId == incoming().requestId + '_' + request.auth.uid
+        && incoming().isEdited == false
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && isValidFulfilledExchangeParticipant(incoming());
+      allow update: if isVerifiedUser()
+        && isValidId(ratingId)
+        && isValidExchangeRating(incoming())
+        && isEditRatingAction();
+      allow delete: if false;
     }
   }
 }

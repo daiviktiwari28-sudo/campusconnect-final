@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState, type FormEvent } from 'react';
 import {
   AlertCircle,
+  Bell,
   CheckCircle2,
   Clock,
   GraduationCap,
@@ -10,21 +11,32 @@ import {
   Loader2,
   LogOut,
   Package,
+  Pencil,
   Phone,
   Plus,
   Search,
+  Star,
   Trash2,
   UserCheck,
   X,
 } from 'lucide-react';
-import type { CampusItem, CampusRequest } from '../data/campusItems';
+import type { CampusItem, CampusRequest, ExchangeRating } from '../data/campusItems';
 import type { CampusUser } from '../hooks/useAuth';
 import { useCampusItems } from '../hooks/useCampusItems';
+import {
+  buildExchangeSummary,
+  formatRemainingEditWindow,
+  isRatingEditable,
+  useRatings,
+} from '../hooks/useRatings';
 import type { AuthFeedback } from '../lib/firebase';
 import { AddItemModal } from './AddItemModal';
 import { DeleteConfirmModal, type DeleteTarget } from './DeleteConfirmModal';
 import { NewRequestModal } from './NewRequestModal';
 import { PhoneRequiredModal } from './PhoneRequiredModal';
+import { RateExchangeModal, type RateModalTarget } from './RateExchangeModal';
+import { StarRatingDisplay } from './StarRatingDisplay';
+import { UserRatingsModal, type ProfileRatingTarget } from './UserRatingsModal';
 
 interface MainPageProps {
   user: CampusUser;
@@ -142,6 +154,8 @@ export function MainPage({
   const [linkedRequestItem, setLinkedRequestItem] = useState<CampusItem | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
   const [pendingGateAction, setPendingGateAction] = useState<PendingGateAction | null>(null);
+  const [rateTarget, setRateTarget] = useState<RateModalTarget | null>(null);
+  const [profileRatingTarget, setProfileRatingTarget] = useState<ProfileRatingTarget | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   const {
@@ -156,6 +170,7 @@ export function MainPage({
     deletingId,
     itemsError,
     statusMessage,
+    newRequestAlert,
     addItem,
     deleteItem,
     createRequest,
@@ -163,7 +178,20 @@ export function MainPage({
     fulfillRequest,
     clearItemsError,
     clearStatusMessage,
+    dismissNewRequestAlert,
   } = useCampusItems(user, userPhone, isAdmin);
+
+  const {
+    submittingRating,
+    ratingsError,
+    ratingStatusMessage,
+    ratingSummaryByUserId,
+    getRatingForRequestByUser,
+    submitRating,
+    updateRating,
+    clearRatingsError,
+    clearRatingStatusMessage,
+  } = useRatings(user);
 
   const hasPhone = Boolean(userPhone && userPhone.trim().length >= 7);
   const displayName = user.displayName?.trim() || user.email || 'Campus Student';
@@ -269,6 +297,45 @@ export function MainPage({
     }
   }
 
+  function handleOpenProfileRatings(userId: string, userName: string) {
+    setProfileRatingTarget({ userId, displayName: userName });
+  }
+
+  function handleOpenCreateRating(req: CampusRequest) {
+    if (req.status !== 'Fulfilled' || !req.acceptedById) return;
+    const isBorrower = req.requesterId === user.uid;
+    setRateTarget({
+      mode: 'create',
+      request: req,
+      rateeName: isBorrower
+        ? req.acceptedByName || 'Lender'
+        : req.requesterName || 'Borrower',
+      raterRole: isBorrower ? 'borrower' : 'lender',
+      exchangeSummary: buildExchangeSummary(req),
+    });
+  }
+
+  function handleOpenEditRating(rating: ExchangeRating) {
+    setRateTarget({
+      mode: 'edit',
+      existingRating: rating,
+      rateeName: rating.rateeName,
+      raterRole: rating.raterRole,
+      exchangeSummary: rating.exchangeSummary,
+    });
+  }
+
+  async function handleRateSubmit(score: number, comment: string): Promise<boolean> {
+    if (!rateTarget) return false;
+    if (rateTarget.mode === 'create' && rateTarget.request) {
+      return submitRating(rateTarget.request, score, comment);
+    }
+    if (rateTarget.mode === 'edit' && rateTarget.existingRating) {
+      return updateRating(rateTarget.existingRating, score, comment);
+    }
+    return false;
+  }
+
   function renderRequestCards(requests: CampusRequest[], emptyForAllView: boolean) {
     if (requests.length === 0 && !normalizedQuery) {
       return (
@@ -363,18 +430,27 @@ export function MainPage({
                     {req.description}
                   </p>
 
-                  <div className="mt-4 pt-3.5 border-t border-slate-100 space-y-2 text-xs text-slate-600">
-                    <div className="flex items-center justify-between gap-2">
-                      <span>
-                        Requested by{' '}
-                        <span className="font-semibold text-slate-900">
-                          {isRequester ? 'You' : req.requesterName}
-                        </span>
-                      </span>
+                  <div className="mt-4 pt-3.5 border-t border-slate-100 space-y-2.5 text-xs text-slate-600">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p>
+                          Requested by{' '}
+                          <span className="font-semibold text-slate-900">
+                            {isRequester ? 'You' : req.requesterName}
+                          </span>
+                        </p>
+                        <StarRatingDisplay
+                          userId={req.requesterId}
+                          userName={isRequester ? displayName : req.requesterName}
+                          summary={ratingSummaryByUserId[req.requesterId]}
+                          onOpenProfile={handleOpenProfileRatings}
+                          compact
+                        />
+                      </div>
                       {req.requesterPhone && (
                         <a
                           href={`tel:${req.requesterPhone.replace(/[^+\d]/g, '')}`}
-                          className="inline-flex items-center gap-1 text-blue-700 font-medium hover:underline shrink-0"
+                          className="inline-flex items-center gap-1 text-blue-700 font-medium hover:underline shrink-0 pt-0.5"
                         >
                           <Phone className="w-3 h-3" aria-hidden="true" />
                           <span>{req.requesterPhone}</span>
@@ -382,18 +458,27 @@ export function MainPage({
                       )}
                     </div>
 
-                    {req.acceptedByName && (
-                      <div className="flex items-center justify-between gap-2">
-                        <span>
-                          Accepted by{' '}
-                          <span className="font-semibold text-slate-900">
-                            {isAccepter ? 'You' : req.acceptedByName}
-                          </span>
-                        </span>
+                    {req.acceptedById && req.acceptedByName && (
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p>
+                            Accepted by{' '}
+                            <span className="font-semibold text-slate-900">
+                              {isAccepter ? 'You' : req.acceptedByName}
+                            </span>
+                          </p>
+                          <StarRatingDisplay
+                            userId={req.acceptedById}
+                            userName={isAccepter ? displayName : req.acceptedByName}
+                            summary={ratingSummaryByUserId[req.acceptedById]}
+                            onOpenProfile={handleOpenProfileRatings}
+                            compact
+                          />
+                        </div>
                         {req.acceptedByPhone && (
                           <a
                             href={`tel:${req.acceptedByPhone.replace(/[^+\d]/g, '')}`}
-                            className="inline-flex items-center gap-1 text-blue-700 font-medium hover:underline shrink-0"
+                            className="inline-flex items-center gap-1 text-blue-700 font-medium hover:underline shrink-0 pt-0.5"
                           >
                             <Phone className="w-3 h-3" aria-hidden="true" />
                             <span>{req.acceptedByPhone}</span>
@@ -449,6 +534,59 @@ export function MainPage({
                   <span className="text-xs text-slate-600">
                     Accepted by {req.acceptedByName} · Handover in progress
                   </span>
+                ) : (isRequester || isAccepter) && req.acceptedById ? (
+                  (() => {
+                    const existingRating = getRatingForRequestByUser(req.id, user.uid);
+                    if (!existingRating) {
+                      return (
+                        <div className="w-full flex items-center justify-between gap-3">
+                          <span className="text-xs font-medium text-emerald-700">
+                            Fulfilled · Handover complete
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleOpenCreateRating(req)}
+                            disabled={!isBackendConfigured}
+                            className="min-h-[34px] px-3 py-1.5 rounded-lg bg-blue-700 text-white text-xs font-medium hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 transition-colors inline-flex items-center gap-1.5 shrink-0 cursor-pointer disabled:opacity-50"
+                          >
+                            <Star className="w-3.5 h-3.5" aria-hidden="true" />
+                            <span>{isRequester ? 'Rate lender' : 'Rate borrower'}</span>
+                          </button>
+                        </div>
+                      );
+                    }
+
+                    const editable = isRatingEditable(existingRating);
+                    return (
+                      <div className="w-full flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-slate-700">
+                          <span className="inline-flex items-center gap-1 font-medium text-slate-900 tabular-nums">
+                            <Star
+                              className="w-3.5 h-3.5 fill-amber-400 text-amber-500"
+                              aria-hidden="true"
+                            />
+                            <span>Your rating: {existingRating.score}/5</span>
+                          </span>
+                          {existingRating.isEdited && (
+                            <span className="text-slate-500">
+                              · Updated {formatTimestamp(existingRating.updatedAtMs)}
+                            </span>
+                          )}
+                        </div>
+                        {editable && (
+                          <button
+                            type="button"
+                            onClick={() => handleOpenEditRating(existingRating)}
+                            title={formatRemainingEditWindow(existingRating)}
+                            className="min-h-[32px] px-2.5 py-1 rounded-lg border border-slate-300 bg-white text-xs font-medium text-slate-700 hover:bg-slate-100 hover:text-slate-900 transition-colors inline-flex items-center gap-1 shrink-0 cursor-pointer"
+                          >
+                            <Pencil className="w-3 h-3" aria-hidden="true" />
+                            <span>Edit rating</span>
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })()
                 ) : (
                   <span className="text-xs font-medium text-emerald-700">
                     Fulfilled · Handover complete
@@ -494,9 +632,19 @@ export function MainPage({
               </div>
             )}
             <div className="min-w-0 flex items-center gap-2 text-sm">
-              <span className="font-medium text-slate-800 truncate max-w-[180px]">
+              <span className="font-medium text-slate-800 truncate max-w-[160px]">
                 {displayName}
               </span>
+              <span className="text-slate-300" aria-hidden="true">
+                ·
+              </span>
+              <StarRatingDisplay
+                userId={user.uid}
+                userName={displayName}
+                summary={ratingSummaryByUserId[user.uid]}
+                onOpenProfile={handleOpenProfileRatings}
+                compact
+              />
               {hasPhone && (
                 <>
                   <span className="text-slate-300" aria-hidden="true">
@@ -582,7 +730,42 @@ export function MainPage({
           </div>
         )}
 
-        {statusMessage && (
+        {newRequestAlert && (
+          <div
+            role="status"
+            className="mb-6 rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-950 flex flex-wrap items-center justify-between gap-3"
+          >
+            <div className="flex items-start gap-3 min-w-0 flex-1">
+              <Bell className="w-5 h-5 text-blue-700 shrink-0 mt-0.5" aria-hidden="true" />
+              <p className="min-w-0 leading-relaxed">
+                <span className="font-semibold">New request from {newRequestAlert.requesterName}:</span>{' '}
+                “{newRequestAlert.description}”
+              </p>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveView('shared-requests');
+                  dismissNewRequestAlert();
+                }}
+                className="min-h-[34px] px-3 py-1.5 rounded-lg bg-blue-700 text-white text-xs font-medium hover:bg-blue-800 transition-colors cursor-pointer"
+              >
+                View Shared Requests
+              </button>
+              <button
+                type="button"
+                onClick={dismissNewRequestAlert}
+                aria-label="Dismiss new request alert"
+                className="p-1 rounded-md text-blue-800 hover:bg-blue-100 transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" aria-hidden="true" />
+              </button>
+            </div>
+          </div>
+        )}
+
+        {(statusMessage || ratingStatusMessage) && (
           <div
             role="status"
             className="mb-6 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-950 flex items-start gap-3"
@@ -591,10 +774,15 @@ export function MainPage({
               className="w-5 h-5 text-emerald-700 shrink-0 mt-0.5"
               aria-hidden="true"
             />
-            <p className="flex-1 min-w-0 leading-relaxed">{statusMessage}</p>
+            <p className="flex-1 min-w-0 leading-relaxed">
+              {ratingStatusMessage || statusMessage}
+            </p>
             <button
               type="button"
-              onClick={clearStatusMessage}
+              onClick={() => {
+                clearStatusMessage();
+                clearRatingStatusMessage();
+              }}
               aria-label="Dismiss confirmation"
               className="p-1 rounded-md text-emerald-800 hover:bg-emerald-100 transition-colors cursor-pointer"
             >
@@ -603,16 +791,19 @@ export function MainPage({
           </div>
         )}
 
-        {itemsError && (
+        {(itemsError || ratingsError) && (
           <div
             role="alert"
             className="mb-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-950 flex items-start gap-3"
           >
             <AlertCircle className="w-5 h-5 text-red-700 shrink-0 mt-0.5" aria-hidden="true" />
-            <p className="flex-1 min-w-0 leading-relaxed">{itemsError}</p>
+            <p className="flex-1 min-w-0 leading-relaxed">{ratingsError || itemsError}</p>
             <button
               type="button"
-              onClick={clearItemsError}
+              onClick={() => {
+                clearItemsError();
+                clearRatingsError();
+              }}
               aria-label="Dismiss error"
               className="p-1 rounded-md text-red-800 hover:bg-red-100 transition-colors cursor-pointer"
             >
@@ -653,7 +844,23 @@ export function MainPage({
                 )}
                 <div className="min-w-0">
                   <p className="text-sm font-medium text-slate-800 truncate">{displayName}</p>
-                  {hasPhone && <p className="text-xs text-slate-500 truncate">{userPhone}</p>}
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                    <StarRatingDisplay
+                      userId={user.uid}
+                      userName={displayName}
+                      summary={ratingSummaryByUserId[user.uid]}
+                      onOpenProfile={handleOpenProfileRatings}
+                      compact
+                    />
+                    {hasPhone && (
+                      <>
+                        <span className="text-slate-300 text-xs" aria-hidden="true">
+                          ·
+                        </span>
+                        <span className="text-xs text-slate-500 truncate">{userPhone}</span>
+                      </>
+                    )}
+                  </div>
                 </div>
               </div>
 
@@ -937,6 +1144,12 @@ export function MainPage({
                         <p className="text-xs font-medium text-slate-700 truncate">
                           {isOwner ? 'Added by You' : `Added by ${item.authorName}`}
                         </p>
+                        <StarRatingDisplay
+                          userId={item.authorId}
+                          userName={isOwner ? displayName : item.authorName}
+                          summary={ratingSummaryByUserId[item.authorId]}
+                          onOpenProfile={handleOpenProfileRatings}
+                        />
                         <p className="text-xs text-slate-500 flex items-center gap-1 truncate mt-0.5">
                           <Phone className="w-3 h-3 shrink-0" aria-hidden="true" />
                           <span>{item.authorPhone}</span>
@@ -1015,6 +1228,24 @@ export function MainPage({
         deleting={Boolean(deleteTarget && deletingId === deleteTarget.id)}
         onCancel={() => setDeleteTarget(null)}
         onConfirm={handleConfirmDelete}
+      />
+
+      <RateExchangeModal
+        target={rateTarget}
+        submitting={submittingRating}
+        onClose={() => setRateTarget(null)}
+        onSubmit={handleRateSubmit}
+      />
+
+      <UserRatingsModal
+        profile={profileRatingTarget}
+        summary={
+          profileRatingTarget ? ratingSummaryByUserId[profileRatingTarget.userId] : undefined
+        }
+        currentUserId={user.uid}
+        onClose={() => setProfileRatingTarget(null)}
+        onSelectUser={handleOpenProfileRatings}
+        onEditRating={handleOpenEditRating}
       />
     </div>
   );

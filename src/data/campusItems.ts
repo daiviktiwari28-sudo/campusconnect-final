@@ -15,6 +15,7 @@ export type CampusCategory =
 
 export type CampusStatus = 'Available';
 export type RequestStatus = 'Open' | 'Accepted' | 'Fulfilled';
+export type RatingRole = 'borrower' | 'lender';
 
 export interface CampusItem {
   id: string;
@@ -48,6 +49,30 @@ export interface CampusRequest {
   updatedAtMs: number;
 }
 
+export interface ExchangeRating {
+  id: string;
+  requestId: string;
+  exchangeSummary: string;
+  raterId: string;
+  raterName: string;
+  raterRole: RatingRole;
+  rateeId: string;
+  rateeName: string;
+  score: number;
+  comment: string;
+  isEdited: boolean;
+  createdAtMs: number;
+  updatedAtMs: number;
+}
+
+export interface UserRatingSummary {
+  userId: string;
+  displayName: string;
+  averageScore: number;
+  count: number;
+  ratings: ExchangeRating[];
+}
+
 export const CAMPUS_ITEM_LIMITS = {
   titleMin: 2,
   titleMax: 100,
@@ -58,6 +83,14 @@ export const CAMPUS_ITEM_LIMITS = {
   authorNameMax: 80,
   phoneMin: 7,
   phoneMax: 25,
+} as const;
+
+export const RATING_LIMITS = {
+  scoreMin: 1,
+  scoreMax: 5,
+  commentMax: 300,
+  exchangeSummaryMax: 120,
+  editWindowMs: 24 * 60 * 60 * 1000,
 } as const;
 
 export const STARTER_CAMPUS_ITEMS: CampusItem[] = [
