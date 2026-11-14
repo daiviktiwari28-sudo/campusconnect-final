@@ -1,0 +1,267 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Private student profile storing the confirmed phone number entered after login.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Firebase Auth UID.",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Student display name.",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "phoneNumber": {
+          "type": "string",
+          "description": "Phone number entered by the student to confirm item lending and borrowing.",
+          "minLength": 7,
+          "maxLength": 25
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when the profile was created."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when the profile was last updated."
+        }
+      },
+      "required": ["uid", "displayName", "phoneNumber", "createdAt", "updatedAt"]
+    },
+    "AdminUser": {
+      "title": "AdminUser",
+      "description": "Authorized CampusConnect administrator record.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Firebase Auth UID of the administrator.",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        }
+      },
+      "required": ["uid"]
+    },
+    "CampusItem": {
+      "title": "CampusItem",
+      "description": "An item shared by a student for other signed-in students across devices.",
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "Name of the shared item.",
+          "minLength": 2,
+          "maxLength": 100
+        },
+        "description": {
+          "type": "string",
+          "description": "Short note or pickup details for the shared item.",
+          "minLength": 1,
+          "maxLength": 400
+        },
+        "photoUrl": {
+          "type": "string",
+          "description": "Compressed JPEG data URL photo of the shared item.",
+          "minLength": 20,
+          "maxLength": 250000
+        },
+        "category": {
+          "type": "string",
+          "description": "Category label shown on the item card.",
+          "enum": [
+            "Shared Item",
+            "Chargers & Cables",
+            "Calculators & Lab",
+            "Lab Equipment",
+            "Weather Gear",
+            "Tech Accessories"
+          ],
+          "minLength": 3,
+          "maxLength": 40
+        },
+        "status": {
+          "type": "string",
+          "description": "Availability status label.",
+          "enum": ["Available"],
+          "minLength": 3,
+          "maxLength": 20
+        },
+        "visibility": {
+          "type": "string",
+          "description": "Campus visibility scope used for scoped list queries.",
+          "enum": ["campus"],
+          "minLength": 6,
+          "maxLength": 6
+        },
+        "authorId": {
+          "type": "string",
+          "description": "Firebase Auth UID of the student who added the item.",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "authorName": {
+          "type": "string",
+          "description": "Display name of the student who added the item.",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "authorPhone": {
+          "type": "string",
+          "description": "Confirmed pickup phone number of the student sharing the item.",
+          "minLength": 7,
+          "maxLength": 25
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when the item was added."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when the item was last updated."
+        }
+      },
+      "required": [
+        "title",
+        "description",
+        "photoUrl",
+        "category",
+        "status",
+        "visibility",
+        "authorId",
+        "authorName",
+        "authorPhone",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "CampusRequest": {
+      "title": "CampusRequest",
+      "description": "A shared student request visible to all signed-in users with atomic Open -> Accepted -> Fulfilled lifecycle.",
+      "type": "object",
+      "properties": {
+        "description": {
+          "type": "string",
+          "description": "What item the student needs and pickup details.",
+          "minLength": 5,
+          "maxLength": 400
+        },
+        "itemId": {
+          "type": "string",
+          "description": "Optional linked shared item ID, or null for general requests.",
+          "maxLength": 128
+        },
+        "itemTitle": {
+          "type": "string",
+          "description": "Optional linked shared item title, or null.",
+          "maxLength": 100
+        },
+        "itemPhotoUrl": {
+          "type": "string",
+          "description": "Optional linked shared item photo URL, or null.",
+          "maxLength": 250000
+        },
+        "status": {
+          "type": "string",
+          "description": "Lifecycle status of the request.",
+          "enum": ["Open", "Accepted", "Fulfilled"],
+          "minLength": 4,
+          "maxLength": 20
+        },
+        "visibility": {
+          "type": "string",
+          "description": "Campus visibility scope used for scoped list queries.",
+          "enum": ["campus"],
+          "minLength": 6,
+          "maxLength": 6
+        },
+        "requesterId": {
+          "type": "string",
+          "description": "Firebase Auth UID of the requesting student.",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "requesterName": {
+          "type": "string",
+          "description": "Display name of the requesting student.",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "requesterPhone": {
+          "type": "string",
+          "description": "Confirmed phone number of the requesting student.",
+          "minLength": 7,
+          "maxLength": 25
+        },
+        "acceptedById": {
+          "type": "string",
+          "description": "Firebase Auth UID of the accepting student, or null while Open.",
+          "maxLength": 128
+        },
+        "acceptedByName": {
+          "type": "string",
+          "description": "Display name of the accepting student, or null while Open.",
+          "maxLength": 80
+        },
+        "acceptedByPhone": {
+          "type": "string",
+          "description": "Confirmed phone number of the accepting student, or null while Open.",
+          "maxLength": 25
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when the request was created."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when the request was last updated."
+        }
+      },
+      "required": [
+        "description",
+        "itemId",
+        "itemTitle",
+        "itemPhotoUrl",
+        "status",
+        "visibility",
+        "requesterId",
+        "requesterName",
+        "requesterPhone",
+        "acceptedById",
+        "acceptedByName",
+        "acceptedByPhone",
+        "createdAt",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "Private student profile storing confirmed phone numbers."
+    },
+    "/admins/{adminId}": {
+      "schema": "AdminUser",
+      "description": "Authorized CampusConnect administrators."
+    },
+    "/campusItems/{itemId}": {
+      "schema": "CampusItem",
+      "description": "Shared items visible to all signed-in users across devices."
+    },
+    "/campusRequests/{requestId}": {
+      "schema": "CampusRequest",
+      "description": "Shared student requests with atomic acceptance and fulfillment tracking."
+    }
+  }
+}

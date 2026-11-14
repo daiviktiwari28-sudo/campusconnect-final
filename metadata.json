@@ -1,0 +1,6 @@
+{
+  "name": "CampusConnect",
+  "description": "A student item-sharing community app where students lend and borrow essentials they forgot or need on campus.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

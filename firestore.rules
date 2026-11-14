@@ -1,0 +1,296 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isAdmin() {
+      return isVerifiedUser() && (
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        request.auth.token.email == 'daiviktiwari28@gmail.com'
+      );
+    }
+
+    function hasSavedPhone(uid, expectedPhone) {
+      return exists(/databases/$(database)/documents/users/$(uid))
+        && get(/databases/$(database)/documents/users/$(uid)).data.phoneNumber == expectedPhone;
+    }
+
+    function isValidUserProfile(data) {
+      return data.keys().hasAll(['uid', 'displayName', 'phoneNumber', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'displayName', 'phoneNumber', 'createdAt', 'updatedAt'])
+        && data.uid is string
+        && isValidId(data.uid)
+        && data.uid == request.auth.uid
+        && data.displayName is string
+        && data.displayName.size() >= 1
+        && data.displayName.size() <= 80
+        && data.phoneNumber is string
+        && data.phoneNumber.size() >= 7
+        && data.phoneNumber.size() <= 25
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidCampusItem(data) {
+      return data.keys().hasAll([
+          'title',
+          'description',
+          'photoUrl',
+          'category',
+          'status',
+          'visibility',
+          'authorId',
+          'authorName',
+          'authorPhone',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'title',
+          'description',
+          'photoUrl',
+          'category',
+          'status',
+          'visibility',
+          'authorId',
+          'authorName',
+          'authorPhone',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.title is string
+        && data.title.size() >= 2
+        && data.title.size() <= 100
+        && data.description is string
+        && data.description.size() >= 1
+        && data.description.size() <= 400
+        && data.photoUrl is string
+        && data.photoUrl.size() >= 20
+        && data.photoUrl.size() <= 250000
+        && data.category is string
+        && data.category.size() >= 3
+        && data.category.size() <= 40
+        && data.category in [
+          'Shared Item',
+          'Chargers & Cables',
+          'Calculators & Lab',
+          'Lab Equipment',
+          'Weather Gear',
+          'Tech Accessories'
+        ]
+        && data.status is string
+        && data.status.size() >= 3
+        && data.status.size() <= 20
+        && data.status == 'Available'
+        && data.visibility is string
+        && data.visibility.size() == 6
+        && data.visibility == 'campus'
+        && data.authorId is string
+        && isValidId(data.authorId)
+        && data.authorId == request.auth.uid
+        && data.authorName is string
+        && data.authorName.size() >= 1
+        && data.authorName.size() <= 80
+        && data.authorPhone is string
+        && data.authorPhone.size() >= 7
+        && data.authorPhone.size() <= 25
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidCampusRequest(data) {
+      return data.keys().hasAll([
+          'description',
+          'itemId',
+          'itemTitle',
+          'itemPhotoUrl',
+          'status',
+          'visibility',
+          'requesterId',
+          'requesterName',
+          'requesterPhone',
+          'acceptedById',
+          'acceptedByName',
+          'acceptedByPhone',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'description',
+          'itemId',
+          'itemTitle',
+          'itemPhotoUrl',
+          'status',
+          'visibility',
+          'requesterId',
+          'requesterName',
+          'requesterPhone',
+          'acceptedById',
+          'acceptedByName',
+          'acceptedByPhone',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.description is string
+        && data.description.size() >= 5
+        && data.description.size() <= 400
+        && (data.itemId == null || (data.itemId is string && data.itemId.size() >= 1 && data.itemId.size() <= 128))
+        && (data.itemTitle == null || (data.itemTitle is string && data.itemTitle.size() >= 2 && data.itemTitle.size() <= 100))
+        && (data.itemPhotoUrl == null || (data.itemPhotoUrl is string && data.itemPhotoUrl.size() >= 1 && data.itemPhotoUrl.size() <= 250000))
+        && data.status is string
+        && data.status.size() >= 4
+        && data.status.size() <= 20
+        && data.status in ['Open', 'Accepted', 'Fulfilled']
+        && data.visibility is string
+        && data.visibility.size() == 6
+        && data.visibility == 'campus'
+        && data.requesterId is string
+        && isValidId(data.requesterId)
+        && data.requesterName is string
+        && data.requesterName.size() >= 1
+        && data.requesterName.size() <= 80
+        && data.requesterPhone is string
+        && data.requesterPhone.size() >= 7
+        && data.requesterPhone.size() <= 25
+        && (
+          (data.status == 'Open' && data.acceptedById == null && data.acceptedByName == null && data.acceptedByPhone == null)
+          || (
+            data.status in ['Accepted', 'Fulfilled']
+            && data.acceptedById is string
+            && isValidId(data.acceptedById)
+            && data.acceptedByName is string
+            && data.acceptedByName.size() >= 1
+            && data.acceptedByName.size() <= 80
+            && data.acceptedByPhone is string
+            && data.acceptedByPhone.size() >= 7
+            && data.acceptedByPhone.size() <= 25
+          )
+        )
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isImmutableRequestCoreUnchanged() {
+      return incoming().createdAt == existing().createdAt
+        && incoming().requesterId == existing().requesterId
+        && incoming().requesterName == existing().requesterName
+        && incoming().requesterPhone == existing().requesterPhone
+        && incoming().description == existing().description
+        && incoming().visibility == existing().visibility
+        && incoming().itemId == existing().itemId
+        && incoming().itemTitle == existing().itemTitle
+        && incoming().itemPhotoUrl == existing().itemPhotoUrl;
+    }
+
+    function isAcceptRequestAction() {
+      return existing().status == 'Open'
+        && existing().acceptedById == null
+        && incoming().status == 'Accepted'
+        && request.auth.uid != existing().requesterId
+        && incoming().acceptedById == request.auth.uid
+        && hasSavedPhone(request.auth.uid, incoming().acceptedByPhone)
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'status',
+          'acceptedById',
+          'acceptedByName',
+          'acceptedByPhone',
+          'updatedAt'
+        ]);
+    }
+
+    function isFulfillRequestAction() {
+      return existing().status == 'Accepted'
+        && incoming().status == 'Fulfilled'
+        && (request.auth.uid == existing().requesterId || request.auth.uid == existing().acceptedById)
+        && incoming().acceptedById == existing().acceptedById
+        && incoming().acceptedByName == existing().acceptedByName
+        && incoming().acceptedByPhone == existing().acceptedByPhone
+        && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt']);
+    }
+
+    match /users/{userId} {
+      allow get: if isSignedIn() && isValidId(userId) && userId == request.auth.uid;
+      allow list: if false;
+      allow create: if isVerifiedUser()
+        && isValidId(userId)
+        && userId == request.auth.uid
+        && isValidUserProfile(incoming())
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isVerifiedUser()
+        && isValidId(userId)
+        && userId == request.auth.uid
+        && isValidUserProfile(incoming())
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'phoneNumber', 'updatedAt']);
+      allow delete: if false;
+    }
+
+    match /admins/{adminId} {
+      allow get: if isSignedIn() && isValidId(adminId) && adminId == request.auth.uid;
+      allow list, create, update, delete: if false;
+    }
+
+    match /campusItems/{itemId} {
+      allow get: if isSignedIn() && isValidId(itemId) && existing().visibility == 'campus';
+      allow list: if isSignedIn() && existing().visibility == 'campus';
+      allow create: if isVerifiedUser()
+        && isValidId(itemId)
+        && isValidCampusItem(incoming())
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && hasSavedPhone(request.auth.uid, incoming().authorPhone);
+      allow update: if false;
+      allow delete: if isVerifiedUser()
+        && isValidId(itemId)
+        && (existing().authorId == request.auth.uid || isAdmin());
+    }
+
+    match /campusRequests/{requestId} {
+      allow get: if isSignedIn() && isValidId(requestId) && existing().visibility == 'campus';
+      allow list: if isSignedIn() && existing().visibility == 'campus';
+      allow create: if isVerifiedUser()
+        && isValidId(requestId)
+        && isValidCampusRequest(incoming())
+        && incoming().requesterId == request.auth.uid
+        && incoming().status == 'Open'
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && hasSavedPhone(request.auth.uid, incoming().requesterPhone);
+      allow update: if isVerifiedUser()
+        && isValidId(requestId)
+        && isValidCampusRequest(incoming())
+        && existing().status != 'Fulfilled'
+        && incoming().updatedAt == request.time
+        && isImmutableRequestCoreUnchanged()
+        && (isAcceptRequestAction() || isFulfillRequestAction());
+      allow delete: if isVerifiedUser()
+        && isValidId(requestId)
+        && (existing().requesterId == request.auth.uid || isAdmin());
+    }
+  }
+}
