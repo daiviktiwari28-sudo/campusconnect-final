@@ -34,9 +34,12 @@ import { AddItemModal } from './AddItemModal';
 import { DeleteConfirmModal, type DeleteTarget } from './DeleteConfirmModal';
 import { NewRequestModal } from './NewRequestModal';
 import { PhoneRequiredModal } from './PhoneRequiredModal';
+import {
+  ProfileReviewsPanel,
+  type ProfileReviewCandidate,
+} from './ProfileReviewsPanel';
 import { RateExchangeModal, type RateModalTarget } from './RateExchangeModal';
 import { StarRatingDisplay } from './StarRatingDisplay';
-import { UserRatingsModal, type ProfileRatingTarget } from './UserRatingsModal';
 
 interface MainPageProps {
   user: CampusUser;
@@ -53,7 +56,7 @@ interface MainPageProps {
   onDismissError: () => void;
 }
 
-type ActiveView = 'items' | 'shared-requests' | 'my-requests';
+type ActiveView = 'items' | 'shared-requests' | 'my-requests' | 'profile-reviews';
 type PendingGateAction =
   | { type: 'add' }
   | { type: 'request'; linkedItem: CampusItem | null }
@@ -155,7 +158,8 @@ export function MainPage({
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
   const [pendingGateAction, setPendingGateAction] = useState<PendingGateAction | null>(null);
   const [rateTarget, setRateTarget] = useState<RateModalTarget | null>(null);
-  const [profileRatingTarget, setProfileRatingTarget] = useState<ProfileRatingTarget | null>(null);
+  const [profileRatingTarget, setProfileRatingTarget] =
+    useState<ProfileReviewCandidate | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   const {
@@ -182,6 +186,8 @@ export function MainPage({
   } = useCampusItems(user, userPhone, isAdmin);
 
   const {
+    ratings,
+    ratingsLoading,
     submittingRating,
     ratingsError,
     ratingStatusMessage,
@@ -229,6 +235,40 @@ export function MainPage({
         (req.acceptedByName && req.acceptedByName.toLowerCase().includes(normalizedQuery))
     );
   }, [myRequests, normalizedQuery]);
+
+  const availableProfiles = useMemo<ProfileReviewCandidate[]>(() => {
+    const byId = new Map<string, ProfileReviewCandidate>();
+    byId.set(user.uid, { userId: user.uid, displayName });
+
+    const addCandidate = (id: string | null | undefined, name: string | null | undefined) => {
+      if (!id || !name?.trim()) return;
+      if (!byId.has(id)) {
+        byId.set(id, { userId: id, displayName: name.trim() });
+      }
+    };
+
+    for (const item of allItems) {
+      addCandidate(item.authorId, item.authorName);
+    }
+    for (const req of sharedRequests) {
+      addCandidate(req.requesterId, req.requesterName);
+      addCandidate(req.acceptedById, req.acceptedByName);
+    }
+    for (const rating of ratings) {
+      addCandidate(rating.rateeId, rating.rateeName);
+      addCandidate(rating.raterId, rating.raterName);
+    }
+    if (profileRatingTarget) {
+      addCandidate(profileRatingTarget.userId, profileRatingTarget.displayName);
+    }
+
+    return Array.from(byId.values());
+  }, [allItems, displayName, profileRatingTarget, ratings, sharedRequests, user.uid]);
+
+  const selectedProfile: ProfileReviewCandidate = profileRatingTarget ?? {
+    userId: user.uid,
+    displayName,
+  };
 
   function handleClearSearch() {
     setSearchQuery('');
@@ -299,6 +339,9 @@ export function MainPage({
 
   function handleOpenProfileRatings(userId: string, userName: string) {
     setProfileRatingTarget({ userId, displayName: userName });
+    setActiveView('profile-reviews');
+    setSearchQuery('');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
   function handleOpenCreateRating(req: CampusRequest) {
@@ -1012,11 +1055,27 @@ export function MainPage({
                   ({myRequests.length})
                 </span>
               </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeView === 'profile-reviews'}
+                onClick={() => setActiveView('profile-reviews')}
+                className={`min-h-[38px] px-3.5 py-1.5 rounded-lg text-sm font-medium transition-colors duration-150 whitespace-nowrap shrink-0 cursor-pointer ${
+                  activeView === 'profile-reviews'
+                    ? 'bg-white text-slate-900 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Profile Reviews{' '}
+                <span className="ml-1 text-xs text-slate-500 tabular-nums">
+                  ({ratings.length})
+                </span>
+              </button>
             </div>
 
             <div className="relative flex-1 max-w-xl w-full">
               <label htmlFor="campus-search" className="sr-only">
-                Search shared items or requests
+                Search shared items, requests, or profile reviews
               </label>
               <Search
                 className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none"
@@ -1031,7 +1090,9 @@ export function MainPage({
                 placeholder={
                   activeView === 'items'
                     ? 'Search shared items by name, note, or student...'
-                    : 'Search requests by description, student, or status...'
+                    : activeView === 'profile-reviews'
+                      ? 'Search reviews by comment, author, or exchange...'
+                      : 'Search requests by description, student, or status...'
                 }
                 className="w-full min-h-[44px] pl-10 pr-20 py-2.5 rounded-xl border border-slate-300 bg-white text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-700 focus:border-blue-700"
               />
@@ -1054,13 +1115,27 @@ export function MainPage({
               ? 'Shared items posted by students across devices · Live updates enabled'
               : activeView === 'shared-requests'
                 ? 'Shared requests from all signed-in users · Accept an Open request to help a student'
-                : 'Requests created by you · Track Open, Accepted, and Fulfilled status'}
+                : activeView === 'my-requests'
+                  ? 'Requests created by you · Track Open, Accepted, and Fulfilled status'
+                  : 'Public exchange ratings and comments visible to all signed-in students'}
           </p>
         </section>
 
         {/* Active View Content */}
         <section className="mt-5" aria-label="CampusConnect community list">
-          {loading ? (
+          {activeView === 'profile-reviews' ? (
+            <ProfileReviewsPanel
+              selectedProfile={selectedProfile}
+              availableProfiles={availableProfiles}
+              ratingSummaryByUserId={ratingSummaryByUserId}
+              currentUserId={user.uid}
+              searchQuery={searchQuery}
+              loading={ratingsLoading}
+              onSelectProfile={(id, name) => setProfileRatingTarget({ userId: id, displayName: name })}
+              onEditRating={handleOpenEditRating}
+              onClearSearch={handleClearSearch}
+            />
+          ) : loading ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
               {Array.from({ length: 6 }).map((_, index) => (
                 <div
@@ -1235,17 +1310,6 @@ export function MainPage({
         submitting={submittingRating}
         onClose={() => setRateTarget(null)}
         onSubmit={handleRateSubmit}
-      />
-
-      <UserRatingsModal
-        profile={profileRatingTarget}
-        summary={
-          profileRatingTarget ? ratingSummaryByUserId[profileRatingTarget.userId] : undefined
-        }
-        currentUserId={user.uid}
-        onClose={() => setProfileRatingTarget(null)}
-        onSelectUser={handleOpenProfileRatings}
-        onEditRating={handleOpenEditRating}
       />
     </div>
   );
