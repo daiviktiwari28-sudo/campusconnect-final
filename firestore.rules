@@ -25,14 +25,32 @@ service cloud.firestore {
       return isSignedIn() && request.auth.token.email_verified == true;
     }
 
+    function isBootstrappedAdmin() {
+      return isVerifiedUser()
+        && request.auth.token.email is string
+        && request.auth.token.email.lower() == 'daiviktiwari28@gmail.com';
+    }
+
     function isCampusEmail() {
       return isVerifiedUser()
         && request.auth.token.email is string
-        && request.auth.token.email.lower().matches('^[^@\\s]+@([a-z0-9-]+\\.)*jdcoem\\.(ac\\.)?in$');
+        && (
+          request.auth.token.email.lower().matches('^[^@\\s]+@([a-z0-9-]+\\.)*jdcoem\\.(ac\\.)?in$')
+          || request.auth.token.email.lower() == 'daiviktiwari28@gmail.com'
+        );
     }
 
     function isAdmin() {
-      return isCampusEmail() && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+      return isBootstrappedAdmin()
+        || (isCampusEmail() && exists(/databases/$(database)/documents/admins/$(request.auth.uid)));
+    }
+
+    function isValidAdminUser(data, adminId) {
+      return data.keys().hasAll(['uid'])
+        && data.keys().hasOnly(['uid'])
+        && data.uid is string
+        && isValidId(data.uid)
+        && data.uid == adminId;
     }
 
     function hasSavedPhone(uid, expectedPhone) {
@@ -351,6 +369,8 @@ service cloud.firestore {
           'acceptedById',
           'acceptedByName',
           'acceptedByPhone',
+          'borrowerFulfilled',
+          'lenderFulfilled',
           'createdAt',
           'updatedAt'
         ])
@@ -367,6 +387,8 @@ service cloud.firestore {
           'acceptedById',
           'acceptedByName',
           'acceptedByPhone',
+          'borrowerFulfilled',
+          'lenderFulfilled',
           'createdAt',
           'updatedAt'
         ])
@@ -391,10 +413,19 @@ service cloud.firestore {
         && data.requesterPhone is string
         && data.requesterPhone.size() >= 7
         && data.requesterPhone.size() <= 25
+        && data.borrowerFulfilled is bool
+        && data.lenderFulfilled is bool
         && (
-          (data.status == 'Open' && data.acceptedById == null && data.acceptedByName == null && data.acceptedByPhone == null)
+          (
+            data.status == 'Open'
+            && data.acceptedById == null
+            && data.acceptedByName == null
+            && data.acceptedByPhone == null
+            && data.borrowerFulfilled == false
+            && data.lenderFulfilled == false
+          )
           || (
-            data.status in ['Accepted', 'Fulfilled']
+            data.status == 'Accepted'
             && data.acceptedById is string
             && isValidId(data.acceptedById)
             && data.acceptedByName is string
@@ -403,6 +434,20 @@ service cloud.firestore {
             && data.acceptedByPhone is string
             && data.acceptedByPhone.size() >= 7
             && data.acceptedByPhone.size() <= 25
+            && !(data.borrowerFulfilled && data.lenderFulfilled)
+          )
+          || (
+            data.status == 'Fulfilled'
+            && data.acceptedById is string
+            && isValidId(data.acceptedById)
+            && data.acceptedByName is string
+            && data.acceptedByName.size() >= 1
+            && data.acceptedByName.size() <= 80
+            && data.acceptedByPhone is string
+            && data.acceptedByPhone.size() >= 7
+            && data.acceptedByPhone.size() <= 25
+            && data.borrowerFulfilled == true
+            && data.lenderFulfilled == true
           )
         )
         && data.createdAt is timestamp
@@ -421,10 +466,22 @@ service cloud.firestore {
         && incoming().itemPhotoUrl == existing().itemPhotoUrl;
     }
 
+    function existingBorrowerFulfilled() {
+      return ('borrowerFulfilled' in existing()) && existing().borrowerFulfilled == true;
+    }
+
+    function existingLenderFulfilled() {
+      return ('lenderFulfilled' in existing()) && existing().lenderFulfilled == true;
+    }
+
     function isAcceptRequestAction() {
       return existing().status == 'Open'
         && existing().acceptedById == null
+        && !existingBorrowerFulfilled()
+        && !existingLenderFulfilled()
         && incoming().status == 'Accepted'
+        && incoming().borrowerFulfilled == false
+        && incoming().lenderFulfilled == false
         && request.auth.uid != existing().requesterId
         && incoming().acceptedById == request.auth.uid
         && hasSavedPhone(request.auth.uid, incoming().acceptedByPhone)
@@ -433,18 +490,56 @@ service cloud.firestore {
           'acceptedById',
           'acceptedByName',
           'acceptedByPhone',
+          'borrowerFulfilled',
+          'lenderFulfilled',
+          'updatedAt'
+        ]);
+    }
+
+    function isBorrowerFulfillAction() {
+      return existing().status == 'Accepted'
+        && request.auth.uid == existing().requesterId
+        && !existingBorrowerFulfilled()
+        && incoming().borrowerFulfilled == true
+        && incoming().lenderFulfilled == existingLenderFulfilled()
+        && (
+          (existingLenderFulfilled() && incoming().status == 'Fulfilled')
+          || (!existingLenderFulfilled() && incoming().status == 'Accepted')
+        )
+        && incoming().acceptedById == existing().acceptedById
+        && incoming().acceptedByName == existing().acceptedByName
+        && incoming().acceptedByPhone == existing().acceptedByPhone
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'borrowerFulfilled',
+          'lenderFulfilled',
+          'status',
+          'updatedAt'
+        ]);
+    }
+
+    function isLenderFulfillAction() {
+      return existing().status == 'Accepted'
+        && request.auth.uid == existing().acceptedById
+        && !existingLenderFulfilled()
+        && incoming().lenderFulfilled == true
+        && incoming().borrowerFulfilled == existingBorrowerFulfilled()
+        && (
+          (existingBorrowerFulfilled() && incoming().status == 'Fulfilled')
+          || (!existingBorrowerFulfilled() && incoming().status == 'Accepted')
+        )
+        && incoming().acceptedById == existing().acceptedById
+        && incoming().acceptedByName == existing().acceptedByName
+        && incoming().acceptedByPhone == existing().acceptedByPhone
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'borrowerFulfilled',
+          'lenderFulfilled',
+          'status',
           'updatedAt'
         ]);
     }
 
     function isFulfillRequestAction() {
-      return existing().status == 'Accepted'
-        && incoming().status == 'Fulfilled'
-        && (request.auth.uid == existing().requesterId || request.auth.uid == existing().acceptedById)
-        && incoming().acceptedById == existing().acceptedById
-        && incoming().acceptedByName == existing().acceptedByName
-        && incoming().acceptedByPhone == existing().acceptedByPhone
-        && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt']);
+      return isBorrowerFulfillAction() || isLenderFulfillAction();
     }
 
     function isValidExchangeRating(data) {
@@ -568,7 +663,9 @@ service cloud.firestore {
     }
 
     match /publicProfiles/{userId} {
-      allow get: if isCampusEmail() && isValidId(userId) && existing().visibility == 'campus';
+      allow get: if isCampusEmail()
+        && isValidId(userId)
+        && (userId == request.auth.uid || (resource != null && existing().visibility == 'campus'));
       allow list: if isCampusEmail() && existing().visibility == 'campus';
       allow create: if isCampusEmail()
         && isValidId(userId)
@@ -587,8 +684,17 @@ service cloud.firestore {
     }
 
     match /admins/{adminId} {
-      allow get: if isCampusEmail() && isValidId(adminId) && adminId == request.auth.uid;
-      allow list, create, update, delete: if false;
+      allow get: if isCampusEmail()
+        && isValidId(adminId)
+        && (adminId == request.auth.uid || isAdmin());
+      allow list: if isAdmin();
+      allow create: if isAdmin()
+        && isValidId(adminId)
+        && isValidAdminUser(incoming(), adminId);
+      allow update: if false;
+      allow delete: if isAdmin()
+        && isValidId(adminId)
+        && resource != null;
     }
 
     match /campusItems/{itemId} {
@@ -608,6 +714,7 @@ service cloud.firestore {
         && isPurchaseSellItemAction(itemId);
       allow delete: if isCampusEmail()
         && isValidId(itemId)
+        && resource != null
         && (existing().authorId == request.auth.uid || isAdmin());
     }
 
@@ -665,6 +772,7 @@ service cloud.firestore {
         && (isAcceptRequestAction() || isFulfillRequestAction());
       allow delete: if isCampusEmail()
         && isValidId(requestId)
+        && resource != null
         && (existing().requesterId == request.auth.uid || isAdmin());
     }
 

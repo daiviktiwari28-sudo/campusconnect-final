@@ -15,6 +15,7 @@ import {
   Phone,
   Plus,
   Search,
+  Shield,
   ShoppingBag,
   Star,
   Trash2,
@@ -30,6 +31,7 @@ import {
   type ListingType,
 } from '../data/campusItems';
 import type { CampusUser, StudentProfile } from '../hooks/useAuth';
+import { useAdmins } from '../hooks/useAdmins';
 import { useCampusItems } from '../hooks/useCampusItems';
 import { usePayments } from '../hooks/usePayments';
 import { usePublicProfiles } from '../hooks/usePublicProfiles';
@@ -48,6 +50,7 @@ import {
   type StudentProfileInput,
 } from '../lib/profileUtils';
 import { AddItemModal } from './AddItemModal';
+import { AdminDashboardPanel } from './AdminDashboardPanel';
 import { DeleteConfirmModal, type DeleteTarget } from './DeleteConfirmModal';
 import { NewRequestModal } from './NewRequestModal';
 import { PaymentModal } from './PaymentModal';
@@ -77,7 +80,13 @@ interface MainPageProps {
   onDismissError: () => void;
 }
 
-type ActiveView = 'items' | 'shared-requests' | 'my-requests' | 'profile-reviews' | 'transactions';
+type ActiveView =
+  | 'items'
+  | 'shared-requests'
+  | 'my-requests'
+  | 'profile-reviews'
+  | 'transactions'
+  | 'admin';
 type ItemListingFilter = 'all' | ListingType;
 type PendingGateAction =
   | { type: 'add' }
@@ -211,6 +220,12 @@ export function MainPage({
     userPhone,
   ]);
 
+  useEffect(() => {
+    if (!isAdmin && activeView === 'admin') {
+      setActiveView('items');
+    }
+  }, [activeView, isAdmin]);
+
   const {
     allItems,
     sharedRequests,
@@ -229,10 +244,22 @@ export function MainPage({
     createRequest,
     acceptRequest,
     fulfillRequest,
+    deleteRequest,
     clearItemsError,
     clearStatusMessage,
     dismissNewRequestAlert,
   } = useCampusItems(user, userPhone, isAdmin);
+
+  const {
+    adminUids,
+    adminsLoading,
+    managingAdminUid,
+    adminError,
+    adminStatusMessage,
+    grantAdmin,
+    revokeAdmin,
+    clearAdminMessages,
+  } = useAdmins(isAdmin);
 
   const {
     ratings,
@@ -446,12 +473,24 @@ export function MainPage({
   }
 
   async function handleConfirmDelete(target: DeleteTarget) {
-    const match = allItems.find((i) => i.id === target.id);
-    if (!match) return;
-    const ok = await deleteItem(match);
-    if (ok) {
+    if (target.kind === 'request') {
+      const matchReq = sharedRequests.find((r) => r.id === target.id);
+      if (!matchReq) {
+        setDeleteTarget(null);
+        return;
+      }
+      await deleteRequest(matchReq);
       setDeleteTarget(null);
+      return;
     }
+
+    const match = allItems.find((i) => i.id === target.id);
+    if (!match) {
+      setDeleteTarget(null);
+      return;
+    }
+    await deleteItem(match);
+    setDeleteTarget(null);
   }
 
   function handleOpenProfileRatings(userId: string, userName: string) {
@@ -466,7 +505,14 @@ export function MainPage({
   }
 
   function handleOpenCreateRating(req: CampusRequest) {
-    if (req.status !== 'Fulfilled' || !req.acceptedById) return;
+    if (
+      req.status !== 'Fulfilled' ||
+      !req.acceptedById ||
+      !req.borrowerFulfilled ||
+      !req.lenderFulfilled
+    ) {
+      return;
+    }
     const isBorrower = req.requesterId === user.uid;
     const rateeId = isBorrower ? req.acceptedById : req.requesterId;
     const rateePublic = publicProfilesById[rateeId];
@@ -560,9 +606,26 @@ export function MainPage({
         {requests.map((req) => {
           const isRequester = req.requesterId === user.uid;
           const isAccepter = req.acceptedById === user.uid;
+          const isBorrower = isRequester;
+          const isLender = isAccepter;
           const isUpdating = updatingRequestId === req.id;
           const canAccept = req.status === 'Open' && !isRequester;
-          const canFulfill = req.status === 'Accepted' && (isRequester || isAccepter);
+          const borrowerConfirmed = req.borrowerFulfilled;
+          const lenderConfirmed = req.lenderFulfilled;
+          const currentUserConfirmed = isBorrower
+            ? borrowerConfirmed
+            : isLender
+              ? lenderConfirmed
+              : false;
+          const otherConfirmed = isBorrower
+            ? lenderConfirmed
+            : isLender
+              ? borrowerConfirmed
+              : false;
+          const canConfirmFulfilled =
+            req.status === 'Accepted' && (isBorrower || isLender) && !currentUserConfirmed;
+          const isFullyFulfilled =
+            req.status === 'Fulfilled' && borrowerConfirmed && lenderConfirmed;
           const requesterPublic = publicProfilesById[req.requesterId];
           const requesterDisplay = requesterPublic?.displayName || req.requesterName;
           const requesterAcademic = formatBranchSemester(
@@ -672,6 +735,40 @@ export function MainPage({
                         )}
                       </div>
                     )}
+
+                    {req.status === 'Accepted' && (
+                      <div className="pt-2.5 border-t border-slate-100 space-y-1.5">
+                        <p className="font-medium text-slate-700">
+                          Fulfillment confirmation (both required to rate):
+                        </p>
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                          <span
+                            className={`inline-flex items-center gap-1 ${
+                              borrowerConfirmed ? 'text-emerald-700 font-medium' : 'text-slate-500'
+                            }`}
+                          >
+                            {borrowerConfirmed ? (
+                              <CheckCircle2 className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                            ) : (
+                              <Clock className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                            )}
+                            <span>Borrower: {borrowerConfirmed ? 'Fulfilled' : 'Pending'}</span>
+                          </span>
+                          <span
+                            className={`inline-flex items-center gap-1 ${
+                              lenderConfirmed ? 'text-emerald-700 font-medium' : 'text-slate-500'
+                            }`}
+                          >
+                            {lenderConfirmed ? (
+                              <CheckCircle2 className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                            ) : (
+                              <Clock className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                            )}
+                            <span>Lender: {lenderConfirmed ? 'Fulfilled' : 'Pending'}</span>
+                          </span>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -693,41 +790,53 @@ export function MainPage({
                       <span>Accept request</span>
                     )}
                   </button>
-                ) : canFulfill ? (
-                  <button
-                    type="button"
-                    onClick={() => void fulfillRequest(req)}
-                    disabled={isUpdating || !isBackendConfigured}
-                    className="w-full min-h-[38px] px-4 py-2 rounded-lg bg-emerald-700 text-white text-xs font-medium hover:bg-emerald-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-700 transition-colors inline-flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
-                  >
-                    {isUpdating ? (
-                      <>
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden="true" />
-                        <span>Updating...</span>
-                      </>
-                    ) : (
-                      <>
-                        <CheckCircle2 className="w-3.5 h-3.5" aria-hidden="true" />
-                        <span>Mark Fulfilled</span>
-                      </>
-                    )}
-                  </button>
+                ) : canConfirmFulfilled ? (
+                  <div className="w-full space-y-2">
+                    <p className="text-xs text-slate-600 leading-relaxed">
+                      {otherConfirmed
+                        ? `${isBorrower ? 'Lender' : 'Borrower'} already marked Fulfilled · Press Mark Fulfilled to complete & unlock ratings.`
+                        : 'Both borrower and lender must press Mark Fulfilled before ratings unlock.'}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => void fulfillRequest(req)}
+                      disabled={isUpdating || !isBackendConfigured}
+                      className="w-full min-h-[38px] px-4 py-2 rounded-lg bg-emerald-700 text-white text-xs font-medium hover:bg-emerald-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-700 transition-colors inline-flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
+                    >
+                      {isUpdating ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden="true" />
+                          <span>Updating...</span>
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle2 className="w-3.5 h-3.5" aria-hidden="true" />
+                          <span>Mark Fulfilled</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
                 ) : req.status === 'Open' ? (
                   <span className="text-xs text-slate-500">
                     Waiting for another student to accept
                   </span>
+                ) : req.status === 'Accepted' && (isBorrower || isLender) && currentUserConfirmed ? (
+                  <span className="text-xs font-medium text-emerald-700 leading-relaxed">
+                    You marked Fulfilled · Waiting for {isBorrower ? 'lender' : 'borrower'} to press
+                    Mark Fulfilled before ratings unlock.
+                  </span>
                 ) : req.status === 'Accepted' ? (
                   <span className="text-xs text-slate-600">
-                    Accepted by {accepterDisplay} · Handover in progress
+                    Accepted by {accepterDisplay} · Waiting for both parties to confirm fulfillment
                   </span>
-                ) : (isRequester || isAccepter) && req.acceptedById ? (
+                ) : isFullyFulfilled && (isRequester || isAccepter) && req.acceptedById ? (
                   (() => {
                     const existingRating = getRatingForRequestByUser(req.id, user.uid);
                     if (!existingRating) {
                       return (
                         <div className="w-full flex items-center justify-between gap-3">
                           <span className="text-xs font-medium text-emerald-700">
-                            Fulfilled · Handover complete
+                            Fulfilled · Both confirmed
                           </span>
                           <button
                             type="button"
@@ -775,7 +884,7 @@ export function MainPage({
                   })()
                 ) : (
                   <span className="text-xs font-medium text-emerald-700">
-                    Fulfilled · Handover complete
+                    Fulfilled · Both confirmed
                   </span>
                 )}
               </div>
@@ -852,7 +961,14 @@ export function MainPage({
                   <span className="text-slate-300" aria-hidden="true">
                     ·
                   </span>
-                  <span className="text-xs font-medium text-blue-700 whitespace-nowrap">Admin</span>
+                  <button
+                    type="button"
+                    onClick={() => setActiveView('admin')}
+                    className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700 hover:text-blue-900 hover:underline whitespace-nowrap cursor-pointer"
+                  >
+                    <Shield className="w-3.5 h-3.5" aria-hidden="true" />
+                    <span>Admin</span>
+                  </button>
                 </>
               )}
             </div>
@@ -1079,6 +1195,21 @@ export function MainPage({
                           ·
                         </span>
                         <span className="text-xs text-slate-500 truncate">{userPhone}</span>
+                      </>
+                    )}
+                    {isAdmin && (
+                      <>
+                        <span className="text-slate-300 text-xs" aria-hidden="true">
+                          ·
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setActiveView('admin')}
+                          className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700 hover:underline cursor-pointer"
+                        >
+                          <Shield className="w-3 h-3" aria-hidden="true" />
+                          <span>Admin Dashboard</span>
+                        </button>
                       </>
                     )}
                   </div>
@@ -1350,6 +1481,22 @@ export function MainPage({
                   ({payments.length})
                 </span>
               </button>
+              {isAdmin && (
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={activeView === 'admin'}
+                  onClick={() => setActiveView('admin')}
+                  className={`min-h-[38px] px-3.5 py-1.5 rounded-lg text-sm font-medium transition-colors duration-150 whitespace-nowrap shrink-0 cursor-pointer inline-flex items-center gap-1.5 ${
+                    activeView === 'admin'
+                      ? 'bg-white text-blue-800 shadow-xs'
+                      : 'text-blue-700 hover:text-blue-900'
+                  }`}
+                >
+                  <Shield className="w-3.5 h-3.5" aria-hidden="true" />
+                  <span>Admin Dashboard</span>
+                </button>
+              )}
             </div>
 
             <div className="relative flex-1 max-w-xl w-full">
@@ -1373,7 +1520,9 @@ export function MainPage({
                       ? 'Search reviews by comment, author, or exchange...'
                       : activeView === 'transactions'
                         ? 'Search transactions by item, reference ID, status, or method...'
-                        : 'Search requests by description, student, or status...'
+                        : activeView === 'admin'
+                          ? 'Filter items or requests by title, student name, or UID...'
+                          : 'Search requests by description, student, or status...'
                 }
                 className="w-full min-h-[44px] pl-10 pr-20 py-2.5 rounded-xl border border-slate-300 bg-white text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-700 focus:border-blue-700"
               />
@@ -1401,7 +1550,9 @@ export function MainPage({
                     ? 'Requests created by you · Track Open, Accepted, and Fulfilled status'
                     : activeView === 'transactions'
                       ? 'Backend-verified purchase and sale receipts across Campus UPI and Campus Direct Pay'
-                      : 'Public student profiles and exchange ratings visible to all JDCOEM students'}
+                      : activeView === 'admin'
+                        ? 'Administrator tools · Moderate any shared item or request and manage admin UIDs'
+                        : 'Public student profiles and exchange ratings visible to all JDCOEM students'}
             </p>
 
             {activeView === 'items' && (
@@ -1433,7 +1584,28 @@ export function MainPage({
 
         {/* Active View Content */}
         <section className="mt-5" aria-label="CampusConnect community list">
-          {activeView === 'profile-reviews' ? (
+          {activeView === 'admin' && isAdmin ? (
+            <AdminDashboardPanel
+              currentUserId={user.uid}
+              currentUserEmail={user.email}
+              items={allItems}
+              requests={sharedRequests}
+              publicProfiles={publicProfiles}
+              publicProfilesById={publicProfilesById}
+              adminUids={adminUids}
+              adminsLoading={adminsLoading}
+              managingAdminUid={managingAdminUid}
+              adminError={adminError}
+              adminStatusMessage={adminStatusMessage}
+              deletingId={deletingId}
+              searchQuery={searchQuery}
+              onRequestDelete={setDeleteTarget}
+              onGrantAdmin={grantAdmin}
+              onRevokeAdmin={revokeAdmin}
+              onClearAdminMessages={clearAdminMessages}
+              onClearSearch={handleClearSearch}
+            />
+          ) : activeView === 'profile-reviews' ? (
             <ProfileReviewsPanel
               selectedProfile={selectedProfile}
               availableProfiles={availableProfiles}
@@ -1479,50 +1651,74 @@ export function MainPage({
           ) : activeView === 'my-requests' ? (
             renderRequestCards(filteredMyRequests, false)
           ) : filteredAllItems.length === 0 ? (
-            <div className="bg-white border border-slate-200 rounded-2xl p-10 text-center max-w-xl mx-auto mt-6">
-              <div className="w-11 h-11 rounded-xl bg-slate-100 text-slate-600 flex items-center justify-center mx-auto">
-                <Search className="w-5 h-5" aria-hidden="true" />
+            allItems.length === 0 ? (
+              <div className="bg-white border border-slate-200 rounded-2xl p-10 text-center max-w-xl mx-auto mt-6">
+                <div className="w-11 h-11 rounded-xl bg-blue-50 border border-blue-200 text-blue-700 flex items-center justify-center mx-auto">
+                  <Package className="w-5 h-5" aria-hidden="true" />
+                </div>
+                <h2 className="mt-4 font-display text-lg font-semibold text-slate-900">
+                  No items listed yet
+                </h2>
+                <p className="mt-2 text-sm text-slate-600 leading-relaxed">
+                  Real listings shared by JDCOEM students appear here. Share an item for lending or
+                  list one for permanent sale to get started.
+                </p>
+                <button
+                  type="button"
+                  onClick={handleOpenAddItem}
+                  disabled={!isBackendConfigured}
+                  className="mt-6 min-h-[42px] px-5 py-2 rounded-xl bg-blue-700 text-white text-sm font-medium hover:bg-blue-800 inline-flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                >
+                  <Plus className="w-4 h-4" aria-hidden="true" />
+                  <span>Add item</span>
+                </button>
               </div>
-              <h2 className="mt-4 font-display text-lg font-semibold text-slate-900">
-                No matching items found
-              </h2>
-              <p className="mt-2 text-sm text-slate-600 leading-relaxed">
-                {normalizedQuery ? (
-                  <>
-                    Nothing matched “
-                    <span className="font-medium text-slate-900">{searchQuery.trim()}</span>”. Try
-                    clearing your search or switching listing filters.
-                  </>
-                ) : (
-                  'No items have been listed under this filter yet.'
-                )}
-              </p>
-              <div className="mt-6 flex items-center justify-center gap-3">
-                {normalizedQuery && (
-                  <button
-                    type="button"
-                    onClick={handleClearSearch}
-                    className="min-h-[40px] px-4 py-2 rounded-xl border border-slate-300 bg-white text-sm font-medium text-slate-700 hover:bg-slate-50 cursor-pointer"
-                  >
-                    Clear search
-                  </button>
-                )}
-                {itemListingFilter !== 'all' && (
-                  <button
-                    type="button"
-                    onClick={() => setItemListingFilter('all')}
-                    className="min-h-[40px] px-4 py-2 rounded-xl bg-blue-700 text-white text-sm font-medium hover:bg-blue-800 cursor-pointer"
-                  >
-                    Show all items
-                  </button>
-                )}
+            ) : (
+              <div className="bg-white border border-slate-200 rounded-2xl p-10 text-center max-w-xl mx-auto mt-6">
+                <div className="w-11 h-11 rounded-xl bg-slate-100 text-slate-600 flex items-center justify-center mx-auto">
+                  <Search className="w-5 h-5" aria-hidden="true" />
+                </div>
+                <h2 className="mt-4 font-display text-lg font-semibold text-slate-900">
+                  No matching items found
+                </h2>
+                <p className="mt-2 text-sm text-slate-600 leading-relaxed">
+                  {normalizedQuery ? (
+                    <>
+                      Nothing matched “
+                      <span className="font-medium text-slate-900">{searchQuery.trim()}</span>”. Try
+                      clearing your search or switching listing filters.
+                    </>
+                  ) : (
+                    'No items have been listed under this filter yet.'
+                  )}
+                </p>
+                <div className="mt-6 flex items-center justify-center gap-3">
+                  {normalizedQuery && (
+                    <button
+                      type="button"
+                      onClick={handleClearSearch}
+                      className="min-h-[40px] px-4 py-2 rounded-xl border border-slate-300 bg-white text-sm font-medium text-slate-700 hover:bg-slate-50 cursor-pointer"
+                    >
+                      Clear search
+                    </button>
+                  )}
+                  {itemListingFilter !== 'all' && (
+                    <button
+                      type="button"
+                      onClick={() => setItemListingFilter('all')}
+                      className="min-h-[40px] px-4 py-2 rounded-xl bg-blue-700 text-white text-sm font-medium hover:bg-blue-800 cursor-pointer"
+                    >
+                      Show all items
+                    </button>
+                  )}
+                </div>
               </div>
-            </div>
+            )
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
               {filteredAllItems.map((item) => {
-                const isOwner = !item.isStarter && item.authorId === user.uid;
-                const canDelete = !item.isStarter && (isOwner || isAdmin);
+                const isOwner = item.authorId === user.uid;
+                const canDelete = isOwner || isAdmin;
                 const isDeletingThis = deletingId === item.id;
                 const isPermanentSale = item.listingType === 'sell';
                 const isSold = item.status === 'Sold';
@@ -1532,6 +1728,26 @@ export function MainPage({
                   authorPublic?.branch,
                   authorPublic?.semester
                 );
+                const myLinkedAcceptedExchanges = !isPermanentSale
+                  ? sharedRequests.filter(
+                      (req) =>
+                        req.itemId === item.id &&
+                        req.status === 'Accepted' &&
+                        (req.requesterId === user.uid || req.acceptedById === user.uid)
+                    )
+                  : [];
+                const myLinkedUnratedFulfilledExchange = !isPermanentSale
+                  ? sharedRequests.find(
+                      (req) =>
+                        req.itemId === item.id &&
+                        req.status === 'Fulfilled' &&
+                        req.borrowerFulfilled &&
+                        req.lenderFulfilled &&
+                        Boolean(req.acceptedById) &&
+                        (req.requesterId === user.uid || req.acceptedById === user.uid) &&
+                        !getRatingForRequestByUser(req.id, user.uid)
+                    )
+                  : undefined;
 
                 return (
                   <article
@@ -1578,10 +1794,127 @@ export function MainPage({
                               : item.soldToName || 'a fellow student'}
                           </p>
                         )}
+
+                        {myLinkedAcceptedExchanges.length > 0 && (
+                          <div className="mt-3.5 space-y-2">
+                            {myLinkedAcceptedExchanges.map((exchangeReq) => {
+                              const isBorrower = exchangeReq.requesterId === user.uid;
+                              const userConfirmed = isBorrower
+                                ? exchangeReq.borrowerFulfilled
+                                : exchangeReq.lenderFulfilled;
+                              const otherConfirmed = isBorrower
+                                ? exchangeReq.lenderFulfilled
+                                : exchangeReq.borrowerFulfilled;
+                              const otherName = isBorrower
+                                ? publicProfilesById[exchangeReq.acceptedById || '']?.displayName ||
+                                  exchangeReq.acceptedByName ||
+                                  'Lender'
+                                : publicProfilesById[exchangeReq.requesterId]?.displayName ||
+                                  exchangeReq.requesterName;
+                              const isUpdatingExchange = updatingRequestId === exchangeReq.id;
+
+                              return (
+                                <div
+                                  key={exchangeReq.id}
+                                  className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-2 text-xs"
+                                >
+                                  <div className="flex items-center justify-between gap-2">
+                                    <span className="font-semibold text-slate-900 truncate">
+                                      Active exchange with {otherName}
+                                    </span>
+                                    <span className="text-slate-500 shrink-0">
+                                      {isBorrower ? 'You: Borrower' : 'You: Lender'}
+                                    </span>
+                                  </div>
+                                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                                    <span
+                                      className={`inline-flex items-center gap-1 ${
+                                        exchangeReq.borrowerFulfilled
+                                          ? 'text-emerald-700 font-medium'
+                                          : 'text-slate-500'
+                                      }`}
+                                    >
+                                      {exchangeReq.borrowerFulfilled ? (
+                                        <CheckCircle2 className="w-3 h-3" aria-hidden="true" />
+                                      ) : (
+                                        <Clock className="w-3 h-3" aria-hidden="true" />
+                                      )}
+                                      <span>Borrower</span>
+                                    </span>
+                                    <span
+                                      className={`inline-flex items-center gap-1 ${
+                                        exchangeReq.lenderFulfilled
+                                          ? 'text-emerald-700 font-medium'
+                                          : 'text-slate-500'
+                                      }`}
+                                    >
+                                      {exchangeReq.lenderFulfilled ? (
+                                        <CheckCircle2 className="w-3 h-3" aria-hidden="true" />
+                                      ) : (
+                                        <Clock className="w-3 h-3" aria-hidden="true" />
+                                      )}
+                                      <span>Lender</span>
+                                    </span>
+                                  </div>
+                                  {!userConfirmed ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => void fulfillRequest(exchangeReq)}
+                                      disabled={isUpdatingExchange || !isBackendConfigured}
+                                      className="w-full min-h-[34px] px-3 py-1.5 rounded-lg bg-emerald-700 text-white text-xs font-medium hover:bg-emerald-800 transition-colors inline-flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
+                                    >
+                                      {isUpdatingExchange ? (
+                                        <>
+                                          <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden="true" />
+                                          <span>Updating...</span>
+                                        </>
+                                      ) : (
+                                        <>
+                                          <CheckCircle2 className="w-3.5 h-3.5" aria-hidden="true" />
+                                          <span>
+                                            {otherConfirmed
+                                              ? 'Mark Fulfilled (complete exchange)'
+                                              : 'Mark Fulfilled'}
+                                          </span>
+                                        </>
+                                      )}
+                                    </button>
+                                  ) : (
+                                    <p className="text-emerald-700 font-medium">
+                                      You marked Fulfilled · Waiting for{' '}
+                                      {isBorrower ? 'lender' : 'borrower'} before ratings unlock.
+                                    </p>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+
+                        {myLinkedUnratedFulfilledExchange && (
+                          <div className="mt-3 rounded-lg border border-blue-200 bg-blue-50/70 p-3 flex items-center justify-between gap-2 text-xs">
+                            <span className="font-medium text-blue-950">
+                              Exchange fulfilled · Ratings unlocked
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => handleOpenCreateRating(myLinkedUnratedFulfilledExchange)}
+                              disabled={!isBackendConfigured}
+                              className="min-h-[32px] px-2.5 py-1 rounded-lg bg-blue-700 text-white text-xs font-medium hover:bg-blue-800 inline-flex items-center gap-1 shrink-0 cursor-pointer disabled:opacity-50"
+                            >
+                              <Star className="w-3 h-3" aria-hidden="true" />
+                              <span>
+                                {myLinkedUnratedFulfilledExchange.requesterId === user.uid
+                                  ? 'Rate lender'
+                                  : 'Rate borrower'}
+                              </span>
+                            </button>
+                          </div>
+                        )}
                       </div>
                     </div>
 
-                    <div className="px-5 py-3.5 border-t border-slate-100 flex items-center justify-between gap-3">
+                    <div className="px-5 py-3.5 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3">
                       <div className="min-w-0">
                         <p className="text-xs font-medium text-slate-700 truncate">
                           {isOwner
@@ -1643,7 +1976,7 @@ export function MainPage({
                             }
                             disabled={isDeletingThis}
                             aria-label={`Delete ${item.title}`}
-                            className="min-h-[36px] px-3 py-1.5 rounded-lg text-xs font-medium text-red-700 hover:bg-red-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 transition-colors inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                            className="min-h-[36px] px-3 py-1.5 rounded-lg border border-red-200 bg-white text-xs font-medium text-red-700 hover:bg-red-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 transition-colors inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
                           >
                             <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
                             <span>Delete</span>

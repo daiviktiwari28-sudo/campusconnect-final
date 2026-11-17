@@ -58,12 +58,18 @@ export const isFirebaseConfigured = Boolean(
 );
 
 export const CAMPUS_EMAIL_DOMAIN = 'jdcoem.ac.in';
+export const BOOTSTRAPPED_ADMIN_EMAIL = 'daiviktiwari28@gmail.com';
 const ALLOWED_CAMPUS_EMAIL_PATTERN = /^[^@\s]+@([a-z0-9-]+\.)*jdcoem\.(ac\.)?in$/;
+
+export function isBootstrappedAdminEmail(email: string | null | undefined): boolean {
+  if (typeof email !== 'string') return false;
+  return email.trim().toLowerCase() === BOOTSTRAPPED_ADMIN_EMAIL;
+}
 
 export function isAllowedCampusEmail(email: string | null | undefined): boolean {
   if (typeof email !== 'string') return false;
   const normalized = email.trim().toLowerCase();
-  return ALLOWED_CAMPUS_EMAIL_PATTERN.test(normalized);
+  return ALLOWED_CAMPUS_EMAIL_PATTERN.test(normalized) || normalized === BOOTSTRAPPED_ADMIN_EMAIL;
 }
 
 let app: FirebaseApp | null = null;

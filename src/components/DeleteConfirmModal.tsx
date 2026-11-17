@@ -61,14 +61,14 @@ export function DeleteConfirmModal({
               id="delete-confirm-title"
               className="font-display text-lg font-bold text-slate-900"
             >
-              {isRequest ? 'Cancel this borrow request?' : 'Delete this shared item?'}
+              {isRequest ? 'Delete this campus request?' : 'Delete this shared item?'}
             </h2>
             <p id="delete-confirm-desc" className="mt-1.5 text-sm text-slate-600 leading-relaxed">
               {isRequest ? (
                 <>
-                  This will remove your borrow request for{' '}
-                  <span className="font-semibold text-slate-900">“{target.title}”</span> from My
-                  Requests.
+                  This will permanently remove the request{' '}
+                  <span className="font-semibold text-slate-900">“{target.title}”</span> from
+                  CampusConnect.
                 </>
               ) : (
                 <>

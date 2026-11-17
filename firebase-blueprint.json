@@ -305,6 +305,14 @@
           "description": "Confirmed phone number of the accepting student, or null while Open.",
           "maxLength": 25
         },
+        "borrowerFulfilled": {
+          "type": "boolean",
+          "description": "True once the borrower (requester) presses Mark Fulfilled."
+        },
+        "lenderFulfilled": {
+          "type": "boolean",
+          "description": "True once the lender (accepter) presses Mark Fulfilled."
+        },
         "createdAt": {
           "type": "string",
           "format": "date-time",
@@ -329,6 +337,8 @@
         "acceptedById",
         "acceptedByName",
         "acceptedByPhone",
+        "borrowerFulfilled",
+        "lenderFulfilled",
         "createdAt",
         "updatedAt"
       ]

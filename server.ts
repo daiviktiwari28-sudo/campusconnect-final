@@ -28,6 +28,7 @@ function loadFirebaseConfig(): FirebaseClientConfig | null {
   }
 }
 
+const BOOTSTRAPPED_ADMIN_EMAIL = 'daiviktiwari28@gmail.com';
 const ALLOWED_CAMPUS_EMAIL_PATTERN = /^[^@\s]+@([a-z0-9-]+\.)*jdcoem\.(ac\.)?in$/;
 const SAFE_ID_PATTERN = /^[a-zA-Z0-9_-]{1,128}$/;
 
@@ -97,7 +98,10 @@ async function verifyFirebaseBearerToken(
   }
 
   const normalizedEmail = account.email.trim().toLowerCase();
-  if (!account.emailVerified || !ALLOWED_CAMPUS_EMAIL_PATTERN.test(normalizedEmail)) {
+  const isAllowedEmail =
+    ALLOWED_CAMPUS_EMAIL_PATTERN.test(normalizedEmail) ||
+    normalizedEmail === BOOTSTRAPPED_ADMIN_EMAIL;
+  if (!account.emailVerified || !isAllowedEmail) {
     return {
       ok: false,
       status: 403,

@@ -7,6 +7,7 @@ import {
   googleProvider,
   handleFirestoreError,
   isAllowedCampusEmail,
+  isBootstrappedAdminEmail,
   isFirebaseConfigured,
   mapAuthError,
   OperationType,
@@ -133,7 +134,10 @@ export function useAuth() {
           ]);
           if (cancelled) return;
 
-          setIsAdmin(Boolean(adminSnap && adminSnap.exists()));
+          const isBootstrappedAdmin = Boolean(
+            firebaseUser.emailVerified && isBootstrappedAdminEmail(firebaseUser.email)
+          );
+          setIsAdmin(isBootstrappedAdmin || Boolean(adminSnap && adminSnap.exists()));
 
           if (userSnap.exists()) {
             const data = userSnap.data();
@@ -342,9 +346,23 @@ export function useAuth() {
         );
         return true;
       } catch (err) {
-        setProfileError(
-          'Could not save your student profile right now. Please try again in a moment.'
-        );
+        const errCode =
+          typeof err === 'object' && err !== null && 'code' in err
+            ? String((err as { code?: unknown }).code)
+            : '';
+        if (errCode === 'permission-denied') {
+          setProfileError(
+            'Permission denied while saving your profile. Please sign out and sign back in with a verified @jdcoem.ac.in or .jdcoem.in Google account.'
+          );
+        } else if (errCode === 'unavailable') {
+          setProfileError(
+            'Cloud Firestore is temporarily unreachable. Check your internet connection and try again.'
+          );
+        } else {
+          setProfileError(
+            'Could not save your student profile right now. Please try again in a moment.'
+          );
+        }
         try {
           handleFirestoreError(err, OperationType.WRITE, userPath);
         } catch {

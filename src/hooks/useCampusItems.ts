@@ -9,13 +9,11 @@ import {
   runTransaction,
   serverTimestamp,
   Timestamp,
-  updateDoc,
   where,
 } from 'firebase/firestore';
 import {
   CAMPUS_ITEM_LIMITS,
   PAYMENT_LIMITS,
-  STARTER_CAMPUS_ITEMS,
   type CampusCategory,
   type CampusItem,
   type CampusRequest,
@@ -92,41 +90,49 @@ export function useCampusItems(user: CampusUser, userPhone: string | null, isAdm
     const unsubscribeItems = onSnapshot(
       itemsQuery,
       (snapshot) => {
-        const loaded: CampusItem[] = snapshot.docs.map((docSnap) => {
-          const data = docSnap.data();
-          const listingType: ListingType = data.listingType === 'sell' ? 'sell' : 'lend';
-          const price =
-            listingType === 'sell' && typeof data.price === 'number' && Number.isFinite(data.price)
-              ? data.price
-              : 0;
-          return {
-            id: docSnap.id,
-            title: typeof data.title === 'string' ? data.title : 'Shared item',
-            description: typeof data.description === 'string' ? data.description : '',
-            photoUrl: typeof data.photoUrl === 'string' ? data.photoUrl : '',
-            category: isAllowedCategory(data.category)
-              ? data.category
-              : listingType === 'sell'
-                ? 'Permanent Sale'
-                : 'Shared Item',
-            listingType,
-            price,
-            status: data.status === 'Sold' ? 'Sold' : 'Available',
-            soldToId: typeof data.soldToId === 'string' ? data.soldToId : null,
-            soldToName: typeof data.soldToName === 'string' ? data.soldToName : null,
-            paymentId: typeof data.paymentId === 'string' ? data.paymentId : null,
-            authorId: typeof data.authorId === 'string' ? data.authorId : '',
-            authorName:
-              typeof data.authorName === 'string' && data.authorName.trim()
-                ? data.authorName
-                : 'Campus Student',
-            authorPhone:
-              typeof data.authorPhone === 'string' ? data.authorPhone : 'Phone confirmed',
-            createdAtMs: toMillis(data.createdAt),
-            updatedAtMs: toMillis(data.updatedAt ?? data.createdAt),
-            isStarter: false,
-          };
-        });
+        const loaded: CampusItem[] = snapshot.docs
+          .filter((docSnap) => {
+            const authorId = docSnap.data().authorId;
+            return (
+              typeof authorId === 'string' &&
+              authorId.trim().length > 0 &&
+              !authorId.startsWith('starter-')
+            );
+          })
+          .map((docSnap) => {
+            const data = docSnap.data();
+            const listingType: ListingType = data.listingType === 'sell' ? 'sell' : 'lend';
+            const price =
+              listingType === 'sell' && typeof data.price === 'number' && Number.isFinite(data.price)
+                ? data.price
+                : 0;
+            return {
+              id: docSnap.id,
+              title: typeof data.title === 'string' ? data.title : 'Shared item',
+              description: typeof data.description === 'string' ? data.description : '',
+              photoUrl: typeof data.photoUrl === 'string' ? data.photoUrl : '',
+              category: isAllowedCategory(data.category)
+                ? data.category
+                : listingType === 'sell'
+                  ? 'Permanent Sale'
+                  : 'Shared Item',
+              listingType,
+              price,
+              status: data.status === 'Sold' ? 'Sold' : 'Available',
+              soldToId: typeof data.soldToId === 'string' ? data.soldToId : null,
+              soldToName: typeof data.soldToName === 'string' ? data.soldToName : null,
+              paymentId: typeof data.paymentId === 'string' ? data.paymentId : null,
+              authorId: typeof data.authorId === 'string' ? data.authorId : '',
+              authorName:
+                typeof data.authorName === 'string' && data.authorName.trim()
+                  ? data.authorName
+                  : 'Campus Student',
+              authorPhone:
+                typeof data.authorPhone === 'string' ? data.authorPhone : 'Phone confirmed',
+              createdAtMs: toMillis(data.createdAt),
+              updatedAtMs: toMillis(data.updatedAt ?? data.createdAt),
+            };
+          });
 
         loaded.sort((a, b) => b.createdAtMs - a.createdAtMs);
         setSharedItems(loaded);
@@ -188,13 +194,23 @@ export function useCampusItems(user: CampusUser, userPhone: string | null, isAdm
 
         const loaded: CampusRequest[] = snapshot.docs.map((docSnap) => {
           const data = docSnap.data();
+          const status = isAllowedRequestStatus(data.status) ? data.status : 'Open';
+          const borrowerFulfilled =
+            typeof data.borrowerFulfilled === 'boolean'
+              ? data.borrowerFulfilled
+              : status === 'Fulfilled';
+          const lenderFulfilled =
+            typeof data.lenderFulfilled === 'boolean'
+              ? data.lenderFulfilled
+              : status === 'Fulfilled';
+
           return {
             id: docSnap.id,
             description: typeof data.description === 'string' ? data.description : '',
             itemId: typeof data.itemId === 'string' ? data.itemId : null,
             itemTitle: typeof data.itemTitle === 'string' ? data.itemTitle : null,
             itemPhotoUrl: typeof data.itemPhotoUrl === 'string' ? data.itemPhotoUrl : null,
-            status: isAllowedRequestStatus(data.status) ? data.status : 'Open',
+            status,
             requesterId: typeof data.requesterId === 'string' ? data.requesterId : '',
             requesterName:
               typeof data.requesterName === 'string' && data.requesterName.trim()
@@ -205,6 +221,8 @@ export function useCampusItems(user: CampusUser, userPhone: string | null, isAdm
             acceptedById: typeof data.acceptedById === 'string' ? data.acceptedById : null,
             acceptedByName: typeof data.acceptedByName === 'string' ? data.acceptedByName : null,
             acceptedByPhone: typeof data.acceptedByPhone === 'string' ? data.acceptedByPhone : null,
+            borrowerFulfilled,
+            lenderFulfilled,
             createdAtMs: toMillis(data.createdAt),
             updatedAtMs: toMillis(data.updatedAt ?? data.createdAt),
           };
@@ -236,7 +254,7 @@ export function useCampusItems(user: CampusUser, userPhone: string | null, isAdm
   }, [user.uid]);
 
   const allItems = useMemo(() => {
-    return [...sharedItems, ...STARTER_CAMPUS_ITEMS];
+    return sharedItems;
   }, [sharedItems]);
 
   const myRequests = useMemo(() => {
@@ -365,11 +383,6 @@ export function useCampusItems(user: CampusUser, userPhone: string | null, isAdm
 
   const deleteItem = useCallback(
     async (item: CampusItem): Promise<boolean> => {
-      if (item.isStarter) {
-        setItemsError('Starter showcase items cannot be deleted.');
-        return false;
-      }
-
       if (item.authorId !== user.uid && !isAdmin) {
         setItemsError('Only the item creator or an authorized administrator can delete this item.');
         return false;
@@ -390,7 +403,15 @@ export function useCampusItems(user: CampusUser, userPhone: string | null, isAdm
         setStatusMessage(`Removed “${item.title}” from CampusConnect.`);
         return true;
       } catch (err) {
-        setItemsError('Could not delete this item right now. Please try again.');
+        const errCode =
+          typeof err === 'object' && err !== null && 'code' in err
+            ? String((err as { code?: unknown }).code)
+            : '';
+        setItemsError(
+          errCode === 'permission-denied'
+            ? 'You do not have permission to delete this item. Only the student who shared it or an authorized admin can delete it.'
+            : 'Could not delete this item right now. Please try again.'
+        );
         try {
           handleFirestoreError(err, OperationType.DELETE, itemPath);
         } catch {
@@ -454,6 +475,8 @@ export function useCampusItems(user: CampusUser, userPhone: string | null, isAdm
           acceptedById: null,
           acceptedByName: null,
           acceptedByPhone: null,
+          borrowerFulfilled: false,
+          lenderFulfilled: false,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         });
@@ -527,6 +550,8 @@ export function useCampusItems(user: CampusUser, userPhone: string | null, isAdm
             acceptedById: user.uid,
             acceptedByName: safeAccepterName,
             acceptedByPhone: safeAccepterPhone,
+            borrowerFulfilled: false,
+            lenderFulfilled: false,
             updatedAt: serverTimestamp(),
           });
         });
@@ -584,7 +609,7 @@ export function useCampusItems(user: CampusUser, userPhone: string | null, isAdm
 
       if (request.requesterId !== user.uid && request.acceptedById !== user.uid) {
         setItemsError(
-          'Only the requester or the student who accepted this request can mark it fulfilled.'
+          'Only the borrower or the lender from this exchange can mark it fulfilled.'
         );
         return false;
       }
@@ -594,21 +619,77 @@ export function useCampusItems(user: CampusUser, userPhone: string | null, isAdm
         return false;
       }
 
+      const firestoreDb = db;
       setUpdatingRequestId(request.id);
       setItemsError(null);
       setStatusMessage(null);
-      const reqRef = doc(db, REQUESTS_COLLECTION, request.id);
+      const reqRef = doc(firestoreDb, REQUESTS_COLLECTION, request.id);
       const reqPath = `${REQUESTS_COLLECTION}/${request.id}`;
 
       try {
-        await updateDoc(reqRef, {
-          status: 'Fulfilled',
-          updatedAt: serverTimestamp(),
+        const resultStatus = await runTransaction(firestoreDb, async (transaction) => {
+          const latestSnap = await transaction.get(reqRef);
+          if (!latestSnap.exists()) {
+            throw new Error('REQUEST_NOT_FOUND');
+          }
+
+          const data = latestSnap.data();
+          if (data.status !== 'Accepted') {
+            throw new Error('NOT_ACCEPTED');
+          }
+
+          const isBorrower = data.requesterId === user.uid;
+          const isLender = data.acceptedById === user.uid;
+          if (!isBorrower && !isLender) {
+            throw new Error('UNAUTHORIZED');
+          }
+
+          const prevBorrowerFulfilled = data.borrowerFulfilled === true;
+          const prevLenderFulfilled = data.lenderFulfilled === true;
+
+          if ((isBorrower && prevBorrowerFulfilled) || (isLender && prevLenderFulfilled)) {
+            throw new Error('ALREADY_CONFIRMED');
+          }
+
+          const nextBorrowerFulfilled = isBorrower ? true : prevBorrowerFulfilled;
+          const nextLenderFulfilled = isLender ? true : prevLenderFulfilled;
+          const nextStatus: RequestStatus =
+            nextBorrowerFulfilled && nextLenderFulfilled ? 'Fulfilled' : 'Accepted';
+
+          transaction.update(reqRef, {
+            borrowerFulfilled: nextBorrowerFulfilled,
+            lenderFulfilled: nextLenderFulfilled,
+            status: nextStatus,
+            updatedAt: serverTimestamp(),
+          });
+
+          return nextStatus;
         });
 
-        setStatusMessage('Request marked as Fulfilled.');
+        setStatusMessage(
+          resultStatus === 'Fulfilled'
+            ? 'Both borrower and lender confirmed! Exchange is now Fulfilled and ratings are unlocked.'
+            : 'Your fulfillment is recorded. Once the other student also presses Mark Fulfilled, ratings will unlock.'
+        );
         return true;
       } catch (err) {
+        if (err instanceof Error && err.message === 'ALREADY_CONFIRMED') {
+          setItemsError('You have already pressed Mark Fulfilled for this exchange.');
+          return false;
+        }
+        if (err instanceof Error && err.message === 'REQUEST_NOT_FOUND') {
+          setItemsError('This request is no longer available.');
+          return false;
+        }
+        if (err instanceof Error && err.message === 'NOT_ACCEPTED') {
+          setItemsError('This exchange is no longer in Accepted status.');
+          return false;
+        }
+        if (err instanceof Error && err.message === 'UNAUTHORIZED') {
+          setItemsError('Only the borrower or lender can confirm fulfillment.');
+          return false;
+        }
+
         setItemsError('Could not mark this request as fulfilled right now. Please try again.');
         try {
           handleFirestoreError(err, OperationType.UPDATE, reqPath);
@@ -621,6 +702,50 @@ export function useCampusItems(user: CampusUser, userPhone: string | null, isAdm
       }
     },
     [user.uid]
+  );
+
+  const deleteRequest = useCallback(
+    async (request: CampusRequest): Promise<boolean> => {
+      if (request.requesterId !== user.uid && !isAdmin) {
+        setItemsError('Only the request creator or an authorized administrator can delete this request.');
+        return false;
+      }
+
+      if (!db || !isFirebaseConfigured) {
+        setItemsError('Shared database is not configured.');
+        return false;
+      }
+
+      setDeletingId(request.id);
+      setItemsError(null);
+      setStatusMessage(null);
+      const reqPath = `${REQUESTS_COLLECTION}/${request.id}`;
+
+      try {
+        await deleteDoc(doc(db, REQUESTS_COLLECTION, request.id));
+        setStatusMessage('Removed the campus request.');
+        return true;
+      } catch (err) {
+        const errCode =
+          typeof err === 'object' && err !== null && 'code' in err
+            ? String((err as { code?: unknown }).code)
+            : '';
+        setItemsError(
+          errCode === 'permission-denied'
+            ? 'You do not have permission to delete this request.'
+            : 'Could not delete this request right now. Please try again.'
+        );
+        try {
+          handleFirestoreError(err, OperationType.DELETE, reqPath);
+        } catch {
+          // Structured error logged in handleFirestoreError
+        }
+        return false;
+      } finally {
+        setDeletingId(null);
+      }
+    },
+    [isAdmin, user.uid]
   );
 
   const clearItemsError = useCallback(() => {
@@ -653,6 +778,7 @@ export function useCampusItems(user: CampusUser, userPhone: string | null, isAdm
     createRequest,
     acceptRequest,
     fulfillRequest,
+    deleteRequest,
     clearItemsError,
     clearStatusMessage,
     dismissNewRequestAlert,

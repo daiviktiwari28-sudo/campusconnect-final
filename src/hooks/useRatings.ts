@@ -188,8 +188,15 @@ export function useRatings(user: CampusUser) {
         return false;
       }
 
-      if (request.status !== 'Fulfilled' || !request.acceptedById) {
-        setRatingsError('Ratings can only be submitted after an exchange is marked Fulfilled.');
+      if (
+        request.status !== 'Fulfilled' ||
+        !request.acceptedById ||
+        !request.borrowerFulfilled ||
+        !request.lenderFulfilled
+      ) {
+        setRatingsError(
+          'Ratings can only be submitted after both the borrower and lender mark the exchange as Fulfilled.'
+        );
         return false;
       }
 
