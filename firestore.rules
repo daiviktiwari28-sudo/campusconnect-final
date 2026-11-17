@@ -25,31 +25,65 @@ service cloud.firestore {
       return isSignedIn() && request.auth.token.email_verified == true;
     }
 
+    function isCampusEmail() {
+      return isVerifiedUser()
+        && request.auth.token.email is string
+        && request.auth.token.email.lower().matches('^[^@\\s]+@([a-z0-9-]+\\.)*jdcoem\\.(ac\\.)?in$');
+    }
+
     function isAdmin() {
-      return isVerifiedUser() && (
-        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
-        request.auth.token.email == 'daiviktiwari28@gmail.com'
-      );
+      return isCampusEmail() && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
     }
 
     function hasSavedPhone(uid, expectedPhone) {
       return exists(/databases/$(database)/documents/users/$(uid))
-        && get(/databases/$(database)/documents/users/$(uid)).data.phoneNumber == expectedPhone;
+        && get(/databases/$(database)/documents/users/$(uid)).data.phoneNumber == expectedPhone
+        && get(/databases/$(database)/documents/users/$(uid)).data.branch is string
+        && get(/databases/$(database)/documents/users/$(uid)).data.branch.size() >= 2
+        && get(/databases/$(database)/documents/users/$(uid)).data.semester is string
+        && get(/databases/$(database)/documents/users/$(uid)).data.semester.size() >= 1;
     }
 
     function isValidUserProfile(data) {
-      return data.keys().hasAll(['uid', 'displayName', 'phoneNumber', 'createdAt', 'updatedAt'])
-        && data.keys().hasOnly(['uid', 'displayName', 'phoneNumber', 'createdAt', 'updatedAt'])
+      return data.keys().hasAll(['uid', 'displayName', 'branch', 'semester', 'phoneNumber', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'displayName', 'branch', 'semester', 'phoneNumber', 'createdAt', 'updatedAt'])
         && data.uid is string
         && isValidId(data.uid)
         && data.uid == request.auth.uid
         && data.displayName is string
-        && data.displayName.size() >= 1
+        && data.displayName.size() >= 2
         && data.displayName.size() <= 80
+        && data.branch is string
+        && data.branch.size() >= 2
+        && data.branch.size() <= 60
+        && data.semester is string
+        && data.semester.size() >= 1
+        && data.semester.size() <= 20
         && data.phoneNumber is string
         && data.phoneNumber.size() >= 7
         && data.phoneNumber.size() <= 25
         && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidPublicProfile(data) {
+      return data.keys().hasAll(['uid', 'displayName', 'branch', 'semester', 'visibility', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'displayName', 'branch', 'semester', 'visibility', 'updatedAt'])
+        && data.uid is string
+        && isValidId(data.uid)
+        && data.uid == request.auth.uid
+        && data.displayName is string
+        && data.displayName.size() >= 2
+        && data.displayName.size() <= 80
+        && data.branch is string
+        && data.branch.size() >= 2
+        && data.branch.size() <= 60
+        && data.semester is string
+        && data.semester.size() >= 1
+        && data.semester.size() <= 20
+        && data.visibility is string
+        && data.visibility.size() == 6
+        && data.visibility == 'campus'
         && data.updatedAt is timestamp;
     }
 
@@ -59,7 +93,12 @@ service cloud.firestore {
           'description',
           'photoUrl',
           'category',
+          'listingType',
+          'price',
           'status',
+          'soldToId',
+          'soldToName',
+          'paymentId',
           'visibility',
           'authorId',
           'authorName',
@@ -72,7 +111,12 @@ service cloud.firestore {
           'description',
           'photoUrl',
           'category',
+          'listingType',
+          'price',
           'status',
+          'soldToId',
+          'soldToName',
+          'paymentId',
           'visibility',
           'authorId',
           'authorName',
@@ -94,22 +138,44 @@ service cloud.firestore {
         && data.category.size() <= 40
         && data.category in [
           'Shared Item',
+          'Permanent Sale',
           'Chargers & Cables',
           'Calculators & Lab',
           'Lab Equipment',
           'Weather Gear',
           'Tech Accessories'
         ]
+        && data.listingType is string
+        && data.listingType.size() == 4
+        && data.listingType in ['lend', 'sell']
+        && (data.price is int || data.price is float)
+        && (
+          (data.listingType == 'lend' && data.price == 0)
+          || (data.listingType == 'sell' && data.price >= 1 && data.price <= 100000)
+        )
         && data.status is string
         && data.status.size() >= 3
         && data.status.size() <= 20
-        && data.status == 'Available'
+        && data.status in ['Available', 'Sold']
+        && (
+          (data.status == 'Available' && data.soldToId == null && data.soldToName == null && data.paymentId == null)
+          || (
+            data.status == 'Sold'
+            && data.listingType == 'sell'
+            && data.soldToId is string
+            && isValidId(data.soldToId)
+            && data.soldToName is string
+            && data.soldToName.size() >= 1
+            && data.soldToName.size() <= 80
+            && data.paymentId is string
+            && isValidId(data.paymentId)
+          )
+        )
         && data.visibility is string
         && data.visibility.size() == 6
         && data.visibility == 'campus'
         && data.authorId is string
         && isValidId(data.authorId)
-        && data.authorId == request.auth.uid
         && data.authorName is string
         && data.authorName.size() >= 1
         && data.authorName.size() <= 80
@@ -118,6 +184,157 @@ service cloud.firestore {
         && data.authorPhone.size() <= 25
         && data.createdAt is timestamp
         && data.updatedAt is timestamp;
+    }
+
+    function isPurchaseSellItemAction(itemId) {
+      return existing().listingType == 'sell'
+        && existing().status == 'Available'
+        && incoming().status == 'Sold'
+        && request.auth.uid != existing().authorId
+        && incoming().soldToId == request.auth.uid
+        && incoming().title == existing().title
+        && incoming().description == existing().description
+        && incoming().photoUrl == existing().photoUrl
+        && incoming().category == existing().category
+        && incoming().listingType == existing().listingType
+        && incoming().price == existing().price
+        && incoming().visibility == existing().visibility
+        && incoming().authorId == existing().authorId
+        && incoming().authorName == existing().authorName
+        && incoming().authorPhone == existing().authorPhone
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && isValidId(incoming().paymentId)
+        && getAfter(/databases/$(database)/documents/payments/$(incoming().paymentId)).data.status == 'Successful'
+        && getAfter(/databases/$(database)/documents/payments/$(incoming().paymentId)).data.itemId == itemId
+        && getAfter(/databases/$(database)/documents/payments/$(incoming().paymentId)).data.buyerId == request.auth.uid
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'status',
+          'soldToId',
+          'soldToName',
+          'paymentId',
+          'updatedAt'
+        ]);
+    }
+
+    function isValidCampusPayment(data) {
+      return data.keys().hasAll([
+          'transactionRef',
+          'itemId',
+          'itemTitle',
+          'listingType',
+          'amount',
+          'currency',
+          'paymentMethod',
+          'payerAccountRef',
+          'status',
+          'verifiedByBackend',
+          'verificationCode',
+          'failureReason',
+          'buyerId',
+          'buyerName',
+          'sellerId',
+          'sellerName',
+          'visibility',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'transactionRef',
+          'itemId',
+          'itemTitle',
+          'listingType',
+          'amount',
+          'currency',
+          'paymentMethod',
+          'payerAccountRef',
+          'status',
+          'verifiedByBackend',
+          'verificationCode',
+          'failureReason',
+          'buyerId',
+          'buyerName',
+          'sellerId',
+          'sellerName',
+          'visibility',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.transactionRef is string
+        && data.transactionRef.size() >= 6
+        && data.transactionRef.size() <= 40
+        && data.itemId is string
+        && isValidId(data.itemId)
+        && data.itemTitle is string
+        && data.itemTitle.size() >= 2
+        && data.itemTitle.size() <= 100
+        && data.listingType is string
+        && data.listingType.size() == 4
+        && data.listingType == 'sell'
+        && (data.amount is int || data.amount is float)
+        && data.amount >= 1
+        && data.amount <= 100000
+        && data.currency is string
+        && data.currency.size() == 3
+        && data.currency == 'INR'
+        && data.paymentMethod is string
+        && data.paymentMethod.size() >= 3
+        && data.paymentMethod.size() <= 40
+        && data.paymentMethod in ['Campus UPI', 'Campus Direct Pay']
+        && data.payerAccountRef is string
+        && data.payerAccountRef.size() >= 2
+        && data.payerAccountRef.size() <= 80
+        && data.status is string
+        && data.status.size() >= 6
+        && data.status.size() <= 20
+        && data.status in ['Pending', 'Successful', 'Failed']
+        && data.verifiedByBackend is bool
+        && data.verificationCode is string
+        && data.verificationCode.size() >= 16
+        && data.verificationCode.size() <= 128
+        && (data.failureReason == null || (data.failureReason is string && data.failureReason.size() >= 1 && data.failureReason.size() <= 200))
+        && data.buyerId is string
+        && isValidId(data.buyerId)
+        && data.buyerId == request.auth.uid
+        && data.buyerName is string
+        && data.buyerName.size() >= 1
+        && data.buyerName.size() <= 80
+        && data.sellerId is string
+        && isValidId(data.sellerId)
+        && data.sellerId != data.buyerId
+        && data.sellerName is string
+        && data.sellerName.size() >= 1
+        && data.sellerName.size() <= 80
+        && data.visibility is string
+        && data.visibility.size() == 7
+        && data.visibility == 'private'
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidSellItemForPayment(data) {
+      return exists(/databases/$(database)/documents/campusItems/$(data.itemId))
+        && get(/databases/$(database)/documents/campusItems/$(data.itemId)).data.listingType == 'sell'
+        && get(/databases/$(database)/documents/campusItems/$(data.itemId)).data.status == 'Available'
+        && get(/databases/$(database)/documents/campusItems/$(data.itemId)).data.authorId == data.sellerId
+        && get(/databases/$(database)/documents/campusItems/$(data.itemId)).data.price == data.amount;
+    }
+
+    function isImmutablePaymentCoreUnchanged() {
+      return incoming().transactionRef == existing().transactionRef
+        && incoming().itemId == existing().itemId
+        && incoming().itemTitle == existing().itemTitle
+        && incoming().listingType == existing().listingType
+        && incoming().amount == existing().amount
+        && incoming().currency == existing().currency
+        && incoming().paymentMethod == existing().paymentMethod
+        && incoming().payerAccountRef == existing().payerAccountRef
+        && incoming().buyerId == existing().buyerId
+        && incoming().buyerName == existing().buyerName
+        && incoming().sellerId == existing().sellerId
+        && incoming().sellerName == existing().sellerName
+        && incoming().visibility == existing().visibility
+        && incoming().createdAt == existing().createdAt;
     }
 
     function isValidCampusRequest(data) {
@@ -331,49 +548,107 @@ service cloud.firestore {
     }
 
     match /users/{userId} {
-      allow get: if isSignedIn() && isValidId(userId) && userId == request.auth.uid;
+      allow get: if isCampusEmail() && isValidId(userId) && userId == request.auth.uid;
       allow list: if false;
-      allow create: if isVerifiedUser()
+      allow create: if isCampusEmail()
         && isValidId(userId)
         && userId == request.auth.uid
         && isValidUserProfile(incoming())
         && incoming().createdAt == request.time
         && incoming().updatedAt == request.time;
-      allow update: if isVerifiedUser()
+      allow update: if isCampusEmail()
         && isValidId(userId)
         && userId == request.auth.uid
         && isValidUserProfile(incoming())
         && incoming().uid == existing().uid
         && incoming().createdAt == existing().createdAt
         && incoming().updatedAt == request.time
-        && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'phoneNumber', 'updatedAt']);
+        && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'branch', 'semester', 'phoneNumber', 'updatedAt']);
+      allow delete: if false;
+    }
+
+    match /publicProfiles/{userId} {
+      allow get: if isCampusEmail() && isValidId(userId) && existing().visibility == 'campus';
+      allow list: if isCampusEmail() && existing().visibility == 'campus';
+      allow create: if isCampusEmail()
+        && isValidId(userId)
+        && userId == request.auth.uid
+        && isValidPublicProfile(incoming())
+        && incoming().updatedAt == request.time;
+      allow update: if isCampusEmail()
+        && isValidId(userId)
+        && userId == request.auth.uid
+        && isValidPublicProfile(incoming())
+        && incoming().uid == existing().uid
+        && incoming().visibility == existing().visibility
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'branch', 'semester', 'updatedAt']);
       allow delete: if false;
     }
 
     match /admins/{adminId} {
-      allow get: if isSignedIn() && isValidId(adminId) && adminId == request.auth.uid;
+      allow get: if isCampusEmail() && isValidId(adminId) && adminId == request.auth.uid;
       allow list, create, update, delete: if false;
     }
 
     match /campusItems/{itemId} {
-      allow get: if isSignedIn() && isValidId(itemId) && existing().visibility == 'campus';
-      allow list: if isSignedIn() && existing().visibility == 'campus';
-      allow create: if isVerifiedUser()
+      allow get: if isCampusEmail() && isValidId(itemId) && existing().visibility == 'campus';
+      allow list: if isCampusEmail() && existing().visibility == 'campus';
+      allow create: if isCampusEmail()
         && isValidId(itemId)
         && isValidCampusItem(incoming())
+        && incoming().authorId == request.auth.uid
+        && incoming().status == 'Available'
         && incoming().createdAt == request.time
         && incoming().updatedAt == request.time
         && hasSavedPhone(request.auth.uid, incoming().authorPhone);
-      allow update: if false;
-      allow delete: if isVerifiedUser()
+      allow update: if isCampusEmail()
+        && isValidId(itemId)
+        && isValidCampusItem(incoming())
+        && isPurchaseSellItemAction(itemId);
+      allow delete: if isCampusEmail()
         && isValidId(itemId)
         && (existing().authorId == request.auth.uid || isAdmin());
     }
 
+    match /payments/{paymentId} {
+      allow get: if isCampusEmail()
+        && isValidId(paymentId)
+        && (existing().buyerId == request.auth.uid || existing().sellerId == request.auth.uid);
+      allow list: if isCampusEmail()
+        && (existing().buyerId == request.auth.uid || existing().sellerId == request.auth.uid);
+      allow create: if isCampusEmail()
+        && isValidId(paymentId)
+        && isValidCampusPayment(incoming())
+        && incoming().status == 'Pending'
+        && incoming().verifiedByBackend == false
+        && incoming().failureReason == null
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && isValidSellItemForPayment(incoming());
+      allow update: if isCampusEmail()
+        && isValidId(paymentId)
+        && isValidCampusPayment(incoming())
+        && existing().buyerId == request.auth.uid
+        && existing().status == 'Pending'
+        && incoming().status in ['Successful', 'Failed']
+        && incoming().verifiedByBackend == true
+        && incoming().updatedAt == request.time
+        && isImmutablePaymentCoreUnchanged()
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'status',
+          'verifiedByBackend',
+          'verificationCode',
+          'failureReason',
+          'updatedAt'
+        ]);
+      allow delete: if false;
+    }
+
     match /campusRequests/{requestId} {
-      allow get: if isSignedIn() && isValidId(requestId) && existing().visibility == 'campus';
-      allow list: if isSignedIn() && existing().visibility == 'campus';
-      allow create: if isVerifiedUser()
+      allow get: if isCampusEmail() && isValidId(requestId) && existing().visibility == 'campus';
+      allow list: if isCampusEmail() && existing().visibility == 'campus';
+      allow create: if isCampusEmail()
         && isValidId(requestId)
         && isValidCampusRequest(incoming())
         && incoming().requesterId == request.auth.uid
@@ -381,22 +656,22 @@ service cloud.firestore {
         && incoming().createdAt == request.time
         && incoming().updatedAt == request.time
         && hasSavedPhone(request.auth.uid, incoming().requesterPhone);
-      allow update: if isVerifiedUser()
+      allow update: if isCampusEmail()
         && isValidId(requestId)
         && isValidCampusRequest(incoming())
         && existing().status != 'Fulfilled'
         && incoming().updatedAt == request.time
         && isImmutableRequestCoreUnchanged()
         && (isAcceptRequestAction() || isFulfillRequestAction());
-      allow delete: if isVerifiedUser()
+      allow delete: if isCampusEmail()
         && isValidId(requestId)
         && (existing().requesterId == request.auth.uid || isAdmin());
     }
 
     match /exchangeRatings/{ratingId} {
-      allow get: if isSignedIn() && isValidId(ratingId) && existing().visibility == 'campus';
-      allow list: if isSignedIn() && existing().visibility == 'campus';
-      allow create: if isVerifiedUser()
+      allow get: if isCampusEmail() && isValidId(ratingId) && existing().visibility == 'campus';
+      allow list: if isCampusEmail() && existing().visibility == 'campus';
+      allow create: if isCampusEmail()
         && isValidId(ratingId)
         && isValidExchangeRating(incoming())
         && ratingId == incoming().requestId + '_' + request.auth.uid
@@ -404,7 +679,7 @@ service cloud.firestore {
         && incoming().createdAt == request.time
         && incoming().updatedAt == request.time
         && isValidFulfilledExchangeParticipant(incoming());
-      allow update: if isVerifiedUser()
+      allow update: if isCampusEmail()
         && isValidId(ratingId)
         && isValidExchangeRating(incoming())
         && isEditRatingAction();

@@ -82,7 +82,10 @@ export function SignInPage({
                   Your campus, your community.
                 </h1>
                 <p className="mt-4 text-base sm:text-[17px] leading-relaxed text-slate-600">
-                  Sign in to share spare items, borrow essentials you forgot, and stay connected.
+                  Sign in with your college Google account ending with{' '}
+                  <span className="font-medium text-slate-900">@jdcoem.ac.in</span> or{' '}
+                  <span className="font-medium text-slate-900">.jdcoem.in</span> to share spare
+                  items, borrow essentials, and connect with classmates.
                 </p>
               </div>
 
@@ -163,7 +166,7 @@ export function SignInPage({
                   ) : (
                     <>
                       <GoogleLogo className="w-5 h-5 shrink-0" />
-                      <span className="whitespace-nowrap">Continue with Google</span>
+                      <span className="whitespace-nowrap">Continue with JDCOEM Google</span>
                     </>
                   )}
                 </button>
@@ -175,8 +178,10 @@ export function SignInPage({
                   aria-hidden="true"
                 />
                 <p>
-                  Opens Google’s secure sign-in window. CampusConnect never collects or stores your
-                  Google password.
+                  Restricted to verified{' '}
+                  <span className="font-medium text-slate-700">@jdcoem.ac.in</span> /{' '}
+                  <span className="font-medium text-slate-700">.jdcoem.in</span> student Google
+                  accounts. CampusConnect never stores your Google password.
                 </p>
               </div>
             </div>

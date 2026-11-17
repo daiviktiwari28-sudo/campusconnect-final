@@ -1,6 +1,8 @@
 import { Pencil, Search, Star, User } from 'lucide-react';
 import type { ExchangeRating, UserRatingSummary } from '../data/campusItems';
+import type { PublicStudentProfile } from '../hooks/usePublicProfiles';
 import { formatRemainingEditWindow, isRatingEditable } from '../hooks/useRatings';
+import { formatBranchSemester } from '../lib/profileUtils';
 import { StarScoreRow } from './StarRatingDisplay';
 
 export interface ProfileReviewCandidate {
@@ -11,12 +13,14 @@ export interface ProfileReviewCandidate {
 interface ProfileReviewsPanelProps {
   selectedProfile: ProfileReviewCandidate;
   availableProfiles: ProfileReviewCandidate[];
+  publicProfilesById: Record<string, PublicStudentProfile>;
   ratingSummaryByUserId: Record<string, UserRatingSummary>;
   currentUserId: string;
   searchQuery: string;
   loading: boolean;
   onSelectProfile: (userId: string, displayName: string) => void;
   onEditRating: (rating: ExchangeRating) => void;
+  onOpenEditProfile: () => void;
   onClearSearch: () => void;
 }
 
@@ -37,14 +41,20 @@ function formatDateTime(ms: number): string {
 export function ProfileReviewsPanel({
   selectedProfile,
   availableProfiles,
+  publicProfilesById,
   ratingSummaryByUserId,
   currentUserId,
   searchQuery,
   loading,
   onSelectProfile,
   onEditRating,
+  onOpenEditProfile,
   onClearSearch,
 }: ProfileReviewsPanelProps) {
+  const publicInfo = publicProfilesById[selectedProfile.userId];
+  const resolvedDisplayName = publicInfo?.displayName || selectedProfile.displayName;
+  const academicMeta = formatBranchSemester(publicInfo?.branch, publicInfo?.semester);
+
   const summary = ratingSummaryByUserId[selectedProfile.userId];
   const allRatings = summary?.ratings ?? [];
   const count = summary?.count ?? 0;
@@ -80,20 +90,36 @@ export function ProfileReviewsPanel({
     <div className="space-y-6">
       {/* Selected Student Profile Summary Card */}
       <section
-        aria-label="Public profile rating summary"
+        aria-label="Public student profile and rating summary"
         className="bg-white border border-slate-200 rounded-2xl p-6 sm:p-8"
       >
         <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-6">
           <div className="min-w-0">
-            <p className="text-xs font-medium text-slate-500">Public exchange profile</p>
+            <p className="text-xs font-medium text-slate-500">JDCOEM student profile</p>
             <h2 className="mt-1 font-display text-2xl font-bold tracking-tight text-slate-900">
-              {selectedProfile.displayName}
+              {resolvedDisplayName}
               {isSelf ? ' (You)' : ''}
             </h2>
-            <p className="mt-1 text-xs sm:text-sm text-slate-500">
-              Ratings come strictly from fulfilled campus exchanges · Private contact details are
-              never shown here
+            <p className="mt-1 text-sm font-medium text-slate-700">
+              {academicMeta ? academicMeta : 'Branch & semester not added yet'}
             </p>
+            <p className="mt-1 text-xs sm:text-sm text-slate-500">
+              Ratings come strictly from fulfilled campus exchanges · Phone numbers are never
+              shown here
+            </p>
+
+            {isSelf && (
+              <div className="mt-4">
+                <button
+                  type="button"
+                  onClick={onOpenEditProfile}
+                  className="min-h-[38px] px-3.5 py-1.5 rounded-lg border border-slate-300 bg-white text-xs sm:text-sm font-medium text-slate-700 hover:bg-slate-50 hover:text-slate-900 transition-colors inline-flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Pencil className="w-3.5 h-3.5" aria-hidden="true" />
+                  <span>Edit my profile</span>
+                </button>
+              </div>
+            )}
 
             {count > 0 ? (
               <div className="mt-5 flex flex-wrap items-center gap-3.5">
@@ -115,7 +141,7 @@ export function ProfileReviewsPanel({
             )}
           </div>
 
-          <div className="w-full lg:w-72 shrink-0 space-y-3">
+          <div className="w-full lg:w-80 shrink-0 space-y-3">
             <div>
               <label
                 htmlFor="profile-review-student-select"
@@ -135,22 +161,32 @@ export function ProfileReviewsPanel({
                     const nextId = event.target.value;
                     const match = availableProfiles.find((p) => p.userId === nextId);
                     if (match) {
-                      onSelectProfile(match.userId, match.displayName);
+                      const nextName =
+                        publicProfilesById[match.userId]?.displayName || match.displayName;
+                      onSelectProfile(match.userId, nextName);
                     }
                   }}
                   className="w-full min-h-[42px] pl-9 pr-3 py-2 rounded-xl border border-slate-300 bg-white text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-700 focus:border-blue-700 cursor-pointer"
                 >
                   {availableProfiles.map((candidate) => {
+                    const candidatePublic = publicProfilesById[candidate.userId];
+                    const candidateName = candidatePublic?.displayName || candidate.displayName;
+                    const candidateAcademic = formatBranchSemester(
+                      candidatePublic?.branch,
+                      candidatePublic?.semester
+                    );
                     const candidateSummary = ratingSummaryByUserId[candidate.userId];
                     const scoreLabel =
                       candidateSummary && candidateSummary.count > 0
                         ? ` — ${candidateSummary.averageScore.toFixed(1)} (${candidateSummary.count})`
                         : ' — No ratings yet';
                     const selfSuffix = candidate.userId === currentUserId ? ' (You)' : '';
+                    const academicSuffix = candidateAcademic ? ` · ${candidateAcademic}` : '';
                     return (
                       <option key={candidate.userId} value={candidate.userId}>
-                        {candidate.displayName}
+                        {candidateName}
                         {selfSuffix}
+                        {academicSuffix}
                         {scoreLabel}
                       </option>
                     );
@@ -163,14 +199,16 @@ export function ProfileReviewsPanel({
               <button
                 type="button"
                 onClick={() => {
+                  const selfPublic = publicProfilesById[currentUserId];
                   const selfProfile = availableProfiles.find((p) => p.userId === currentUserId);
-                  if (selfProfile) {
-                    onSelectProfile(selfProfile.userId, selfProfile.displayName);
-                  }
+                  onSelectProfile(
+                    currentUserId,
+                    selfPublic?.displayName || selfProfile?.displayName || 'You'
+                  );
                 }}
                 className="text-xs font-medium text-blue-700 hover:underline cursor-pointer"
               >
-                Switch back to your own ratings
+                Switch back to your own profile
               </button>
             )}
 
@@ -213,8 +251,8 @@ export function ProfileReviewsPanel({
           </h3>
           <p className="mt-2 text-sm text-slate-600 leading-relaxed">
             Ratings appear here after{' '}
-            {isSelf ? 'you complete' : `${selectedProfile.displayName} completes`} a fulfilled
-            borrow or lend exchange and the other student submits feedback.
+            {isSelf ? 'you complete' : `${resolvedDisplayName} completes`} a fulfilled borrow or
+            lend exchange and the other student submits feedback.
           </p>
         </div>
       ) : filteredRatings.length === 0 ? (
@@ -227,7 +265,7 @@ export function ProfileReviewsPanel({
           </h3>
           <p className="mt-2 text-sm text-slate-600 leading-relaxed">
             Nothing matched “<span className="font-medium text-slate-900">{searchQuery.trim()}</span>
-            ” in {isSelf ? 'your' : `${selectedProfile.displayName}’s`} reviews.
+            ” in {isSelf ? 'your' : `${resolvedDisplayName}’s`} reviews.
           </p>
           <button
             type="button"
@@ -247,6 +285,12 @@ export function ProfileReviewsPanel({
             const editable = isAuthor && isRatingEditable(rating);
             const roleRatedLabel =
               rating.raterRole === 'borrower' ? 'Rated as Lender' : 'Rated as Borrower';
+            const raterPublic = publicProfilesById[rating.raterId];
+            const raterDisplayName = raterPublic?.displayName || rating.raterName;
+            const raterAcademic = formatBranchSemester(
+              raterPublic?.branch,
+              raterPublic?.semester
+            );
 
             return (
               <article key={rating.id} className="p-5 sm:p-6">
@@ -288,11 +332,12 @@ export function ProfileReviewsPanel({
                       By{' '}
                       <button
                         type="button"
-                        onClick={() => onSelectProfile(rating.raterId, rating.raterName)}
+                        onClick={() => onSelectProfile(rating.raterId, raterDisplayName)}
                         className="font-medium text-blue-700 hover:underline cursor-pointer"
                       >
-                        {isAuthor ? 'You' : rating.raterName}
+                        {isAuthor ? 'You' : raterDisplayName}
                       </button>
+                      {raterAcademic ? ` (${raterAcademic})` : ''}
                     </span>
                     {rating.isEdited && (
                       <>

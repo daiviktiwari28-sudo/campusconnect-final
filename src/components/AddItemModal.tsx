@@ -1,17 +1,30 @@
 import { useCallback, useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import { Camera, ImagePlus, Loader2, Trash2, Upload, X } from 'lucide-react';
-import { CAMPUS_ITEM_LIMITS } from '../data/campusItems';
+import {
+  CAMPUS_ITEM_LIMITS,
+  PAYMENT_LIMITS,
+  formatInr,
+  type ListingType,
+} from '../data/campusItems';
 import { captureVideoFrameToDataUrl, compressImageFileToDataUrl } from '../lib/imageUtils';
 
 interface AddItemModalProps {
   isOpen: boolean;
   submitting: boolean;
   onClose: () => void;
-  onSubmit: (title: string, photoUrl: string, description: string) => Promise<boolean>;
+  onSubmit: (
+    title: string,
+    photoUrl: string,
+    description: string,
+    listingType: ListingType,
+    price: number
+  ) => Promise<boolean>;
 }
 
 export function AddItemModal({ isOpen, submitting, onClose, onSubmit }: AddItemModalProps) {
+  const [listingType, setListingType] = useState<ListingType>('lend');
   const [title, setTitle] = useState('');
+  const [priceInput, setPriceInput] = useState('');
   const [description, setDescription] = useState('');
   const [photoDataUrl, setPhotoDataUrl] = useState<string>('');
   const [photoLabel, setPhotoLabel] = useState<string>('');
@@ -40,7 +53,9 @@ export function AddItemModal({ isOpen, submitting, onClose, onSubmit }: AddItemM
   useEffect(() => {
     if (!isOpen) {
       stopCameraStream();
+      setListingType('lend');
       setTitle('');
+      setPriceInput('');
       setDescription('');
       setPhotoDataUrl('');
       setPhotoLabel('');
@@ -84,6 +99,7 @@ export function AddItemModal({ isOpen, submitting, onClose, onSubmit }: AddItemM
 
   const trimmedTitle = title.trim();
   const trimmedDescription = description.trim();
+  const isPermanentSale = listingType === 'sell';
 
   async function handleStartCamera() {
     setValidationError(null);
@@ -183,20 +199,45 @@ export function AddItemModal({ isOpen, submitting, onClose, onSubmit }: AddItemM
       return;
     }
 
+    let numericPrice = 0;
+    if (isPermanentSale) {
+      const parsed = Number(priceInput);
+      if (!Number.isFinite(parsed) || parsed < PAYMENT_LIMITS.minPrice || parsed > PAYMENT_LIMITS.maxPrice) {
+        setValidationError(
+          `Please enter a valid selling price between ${formatInr(PAYMENT_LIMITS.minPrice)} and ${formatInr(PAYMENT_LIMITS.maxPrice)}.`
+        );
+        return;
+      }
+      numericPrice = Math.round(parsed * 100) / 100;
+
+      if (trimmedDescription.length < CAMPUS_ITEM_LIMITS.sellDescriptionMin) {
+        setValidationError(
+          `Please enter an item description of at least ${CAMPUS_ITEM_LIMITS.sellDescriptionMin} characters for permanent sale listings.`
+        );
+        return;
+      }
+    }
+
     if (!photoDataUrl) {
-      setValidationError('Please take or upload a photo of the item before sharing.');
+      setValidationError('Please take or upload a photo of the item before listing.');
       return;
     }
 
     if (trimmedDescription.length > CAMPUS_ITEM_LIMITS.descriptionMax) {
       setValidationError(
-        `Notes must be ${CAMPUS_ITEM_LIMITS.descriptionMax} characters or fewer.`
+        `Description must be ${CAMPUS_ITEM_LIMITS.descriptionMax} characters or fewer.`
       );
       return;
     }
 
     setValidationError(null);
-    const saved = await onSubmit(trimmedTitle, photoDataUrl, trimmedDescription);
+    const saved = await onSubmit(
+      trimmedTitle,
+      photoDataUrl,
+      trimmedDescription,
+      listingType,
+      numericPrice
+    );
     if (saved) {
       stopCameraStream();
       onClose();
@@ -226,10 +267,12 @@ export function AddItemModal({ isOpen, submitting, onClose, onSubmit }: AddItemM
               id="add-item-dialog-title"
               className="font-display text-xl font-bold tracking-tight text-slate-900"
             >
-              Share an item
+              {isPermanentSale ? 'List an item for sale' : 'Share an item'}
             </h2>
             <p className="mt-1 text-sm text-slate-600">
-              Write the item name and take or upload a photo so classmates can borrow it.
+              {isPermanentSale
+                ? 'Set a permanent selling price, add a photo, and describe the item so classmates can buy it.'
+                : 'Write the item name and take or upload a photo so classmates can borrow it.'}
             </p>
           </div>
           <button
@@ -265,6 +308,51 @@ export function AddItemModal({ isOpen, submitting, onClose, onSubmit }: AddItemM
             </div>
           )}
 
+          {/* Listing Type */}
+          <fieldset>
+            <legend className="block text-sm font-medium text-slate-900">Listing type</legend>
+            <div className="mt-1.5 grid grid-cols-2 gap-2 p-1 bg-slate-100 rounded-xl">
+              <button
+                type="button"
+                onClick={() => {
+                  setListingType('lend');
+                  setPriceInput('');
+                  if (validationError) setValidationError(null);
+                }}
+                disabled={submitting}
+                aria-pressed={listingType === 'lend'}
+                className={`min-h-[42px] px-3 py-2 rounded-lg text-xs sm:text-sm font-medium transition-colors cursor-pointer ${
+                  listingType === 'lend'
+                    ? 'bg-white text-slate-900 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Lend &amp; Borrow
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setListingType('sell');
+                  if (validationError) setValidationError(null);
+                }}
+                disabled={submitting}
+                aria-pressed={listingType === 'sell'}
+                className={`min-h-[42px] px-3 py-2 rounded-lg text-xs sm:text-sm font-medium transition-colors cursor-pointer ${
+                  listingType === 'sell'
+                    ? 'bg-white text-slate-900 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Permanent Sale
+              </button>
+            </div>
+            <p className="mt-1.5 text-xs text-slate-500">
+              {isPermanentSale
+                ? 'Buyers pay the listed price permanently and the item transitions to Sold.'
+                : 'Free temporary lending and borrowing between JDCOEM students.'}
+            </p>
+          </fieldset>
+
           {/* Item Name */}
           <div>
             <div className="flex items-baseline justify-between gap-2">
@@ -294,6 +382,47 @@ export function AddItemModal({ isOpen, submitting, onClose, onSubmit }: AddItemM
               className="mt-1.5 w-full min-h-[44px] px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-700 focus:border-blue-700 disabled:bg-slate-50"
             />
           </div>
+
+          {isPermanentSale && (
+            <div>
+              <div className="flex items-baseline justify-between gap-2">
+                <label
+                  htmlFor="campus-item-price"
+                  className="block text-sm font-medium text-slate-900"
+                >
+                  Selling price (₹)
+                </label>
+                <span className="text-xs text-slate-500 tabular-nums">
+                  {formatInr(PAYMENT_LIMITS.minPrice)} – {formatInr(PAYMENT_LIMITS.maxPrice)}
+                </span>
+              </div>
+              <div className="mt-1.5 relative">
+                <span
+                  aria-hidden="true"
+                  className="absolute left-3.5 top-1/2 -translate-y-1/2 text-sm font-semibold text-slate-500"
+                >
+                  ₹
+                </span>
+                <input
+                  id="campus-item-price"
+                  type="number"
+                  inputMode="decimal"
+                  required
+                  min={PAYMENT_LIMITS.minPrice}
+                  max={PAYMENT_LIMITS.maxPrice}
+                  step="1"
+                  value={priceInput}
+                  onChange={(event) => {
+                    setPriceInput(event.target.value);
+                    if (validationError) setValidationError(null);
+                  }}
+                  placeholder="e.g., 450"
+                  disabled={submitting}
+                  className="w-full min-h-[44px] pl-8 pr-3.5 py-2.5 rounded-xl border border-slate-300 bg-white text-sm text-slate-900 placeholder:text-slate-400 tabular-nums focus:outline-none focus:ring-2 focus:ring-blue-700 focus:border-blue-700 disabled:bg-slate-50"
+                />
+              </div>
+            </div>
+          )}
 
           {/* Item Photo: Take Photo or Upload Photo */}
           <div>
@@ -437,14 +566,22 @@ export function AddItemModal({ isOpen, submitting, onClose, onSubmit }: AddItemM
             )}
           </div>
 
-          {/* Optional Pickup Note */}
+          {/* Description / Pickup Note */}
           <div>
             <div className="flex items-baseline justify-between gap-2">
               <label
                 htmlFor="campus-item-description"
                 className="block text-sm font-medium text-slate-900"
               >
-                Pickup note <span className="font-normal text-slate-500">(optional)</span>
+                {isPermanentSale ? (
+                  <>
+                    Item description <span className="font-normal text-slate-500">(required)</span>
+                  </>
+                ) : (
+                  <>
+                    Pickup note <span className="font-normal text-slate-500">(optional)</span>
+                  </>
+                )}
               </label>
               <span className="text-xs text-slate-500 tabular-nums">
                 {trimmedDescription.length}/{CAMPUS_ITEM_LIMITS.descriptionMax}
@@ -452,14 +589,19 @@ export function AddItemModal({ isOpen, submitting, onClose, onSubmit }: AddItemM
             </div>
             <textarea
               id="campus-item-description"
-              rows={2}
+              rows={isPermanentSale ? 3 : 2}
+              required={isPermanentSale}
               maxLength={CAMPUS_ITEM_LIMITS.descriptionMax}
               value={description}
               onChange={(event) => {
                 setDescription(event.target.value);
                 if (validationError) setValidationError(null);
               }}
-              placeholder="e.g., Near Science Library entrance until 5 PM"
+              placeholder={
+                isPermanentSale
+                  ? 'Describe condition, accessories included, and where you can hand over the item on campus'
+                  : 'e.g., Near Science Library entrance until 5 PM'
+              }
               disabled={submitting}
               className="mt-1.5 w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-700 focus:border-blue-700 disabled:bg-slate-50 resize-y"
             />
@@ -485,10 +627,10 @@ export function AddItemModal({ isOpen, submitting, onClose, onSubmit }: AddItemM
               {submitting ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
-                  <span>Sharing item...</span>
+                  <span>{isPermanentSale ? 'Listing for sale...' : 'Sharing item...'}</span>
                 </>
               ) : (
-                <span>Share item</span>
+                <span>{isPermanentSale ? 'List for sale' : 'Share item'}</span>
               )}
             </button>
           </div>

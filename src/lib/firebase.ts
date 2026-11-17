@@ -57,6 +57,15 @@ export const isFirebaseConfigured = Boolean(
     isNonEmptyConfigValue(firebaseConfig?.appId)
 );
 
+export const CAMPUS_EMAIL_DOMAIN = 'jdcoem.ac.in';
+const ALLOWED_CAMPUS_EMAIL_PATTERN = /^[^@\s]+@([a-z0-9-]+\.)*jdcoem\.(ac\.)?in$/;
+
+export function isAllowedCampusEmail(email: string | null | undefined): boolean {
+  if (typeof email !== 'string') return false;
+  const normalized = email.trim().toLowerCase();
+  return ALLOWED_CAMPUS_EMAIL_PATTERN.test(normalized);
+}
+
 let app: FirebaseApp | null = null;
 let auth: Auth | null = null;
 let db: Firestore | null = null;

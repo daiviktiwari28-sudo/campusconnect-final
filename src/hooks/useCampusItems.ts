@@ -14,10 +14,12 @@ import {
 } from 'firebase/firestore';
 import {
   CAMPUS_ITEM_LIMITS,
+  PAYMENT_LIMITS,
   STARTER_CAMPUS_ITEMS,
   type CampusCategory,
   type CampusItem,
   type CampusRequest,
+  type ListingType,
   type RequestStatus,
 } from '../data/campusItems';
 import type { CampusUser } from './useAuth';
@@ -29,6 +31,7 @@ const REQUESTS_COLLECTION = 'campusRequests';
 function isAllowedCategory(value: unknown): value is CampusCategory {
   return (
     value === 'Shared Item' ||
+    value === 'Permanent Sale' ||
     value === 'Chargers & Cables' ||
     value === 'Calculators & Lab' ||
     value === 'Lab Equipment' ||
@@ -91,13 +94,27 @@ export function useCampusItems(user: CampusUser, userPhone: string | null, isAdm
       (snapshot) => {
         const loaded: CampusItem[] = snapshot.docs.map((docSnap) => {
           const data = docSnap.data();
+          const listingType: ListingType = data.listingType === 'sell' ? 'sell' : 'lend';
+          const price =
+            listingType === 'sell' && typeof data.price === 'number' && Number.isFinite(data.price)
+              ? data.price
+              : 0;
           return {
             id: docSnap.id,
             title: typeof data.title === 'string' ? data.title : 'Shared item',
             description: typeof data.description === 'string' ? data.description : '',
             photoUrl: typeof data.photoUrl === 'string' ? data.photoUrl : '',
-            category: isAllowedCategory(data.category) ? data.category : 'Shared Item',
-            status: 'Available',
+            category: isAllowedCategory(data.category)
+              ? data.category
+              : listingType === 'sell'
+                ? 'Permanent Sale'
+                : 'Shared Item',
+            listingType,
+            price,
+            status: data.status === 'Sold' ? 'Sold' : 'Available',
+            soldToId: typeof data.soldToId === 'string' ? data.soldToId : null,
+            soldToName: typeof data.soldToName === 'string' ? data.soldToName : null,
+            paymentId: typeof data.paymentId === 'string' ? data.paymentId : null,
             authorId: typeof data.authorId === 'string' ? data.authorId : '',
             authorName:
               typeof data.authorName === 'string' && data.authorName.trim()
@@ -227,10 +244,16 @@ export function useCampusItems(user: CampusUser, userPhone: string | null, isAdm
   }, [sharedRequests, user.uid]);
 
   const addItem = useCallback(
-    async (rawTitle: string, photoUrl: string, rawDescription = ''): Promise<boolean> => {
+    async (
+      rawTitle: string,
+      photoUrl: string,
+      rawDescription = '',
+      listingType: ListingType = 'lend',
+      rawPrice = 0
+    ): Promise<boolean> => {
       const normalizedPhone = userPhone?.trim() || '';
       if (normalizedPhone.length < CAMPUS_ITEM_LIMITS.phoneMin) {
-        setItemsError('Please enter and save your phone number before adding an item.');
+        setItemsError('Please complete your student profile before adding an item.');
         return false;
       }
 
@@ -242,8 +265,11 @@ export function useCampusItems(user: CampusUser, userPhone: string | null, isAdm
       }
 
       const title = rawTitle.trim();
+      const trimmedDesc = rawDescription.trim();
       const description =
-        rawDescription.trim() || 'Available to borrow on campus. Contact me to arrange pickup.';
+        listingType === 'sell'
+          ? trimmedDesc
+          : trimmedDesc || 'Available to borrow on campus. Contact me to arrange pickup.';
 
       if (
         title.length < CAMPUS_ITEM_LIMITS.titleMin ||
@@ -251,6 +277,30 @@ export function useCampusItems(user: CampusUser, userPhone: string | null, isAdm
       ) {
         setItemsError(
           `Item name must be between ${CAMPUS_ITEM_LIMITS.titleMin} and ${CAMPUS_ITEM_LIMITS.titleMax} characters.`
+        );
+        return false;
+      }
+
+      if (
+        listingType === 'sell' &&
+        description.length < CAMPUS_ITEM_LIMITS.sellDescriptionMin
+      ) {
+        setItemsError(
+          `Please add a short description (${CAMPUS_ITEM_LIMITS.sellDescriptionMin}+ characters) for permanent sale items.`
+        );
+        return false;
+      }
+
+      const numericPrice =
+        listingType === 'sell' ? Math.round(Number(rawPrice) * 100) / 100 : 0;
+      if (
+        listingType === 'sell' &&
+        (!Number.isFinite(numericPrice) ||
+          numericPrice < PAYMENT_LIMITS.minPrice ||
+          numericPrice > PAYMENT_LIMITS.maxPrice)
+      ) {
+        setItemsError(
+          `Enter a valid selling price between ₹${PAYMENT_LIMITS.minPrice} and ₹${PAYMENT_LIMITS.maxPrice}.`
         );
         return false;
       }
@@ -275,8 +325,13 @@ export function useCampusItems(user: CampusUser, userPhone: string | null, isAdm
           title,
           description: description.slice(0, CAMPUS_ITEM_LIMITS.descriptionMax),
           photoUrl,
-          category: 'Shared Item',
+          category: listingType === 'sell' ? 'Permanent Sale' : 'Shared Item',
+          listingType,
+          price: numericPrice,
           status: 'Available',
+          soldToId: null,
+          soldToName: null,
+          paymentId: null,
           visibility: 'campus',
           authorId: user.uid,
           authorName: safeAuthorName,
@@ -285,7 +340,11 @@ export function useCampusItems(user: CampusUser, userPhone: string | null, isAdm
           updatedAt: serverTimestamp(),
         });
 
-        setStatusMessage(`“${title}” is now shared with all signed-in students.`);
+        setStatusMessage(
+          listingType === 'sell'
+            ? `“${title}” is now listed for permanent sale at ₹${numericPrice}.`
+            : `“${title}” is now shared for lending and borrowing.`
+        );
         return true;
       } catch (err) {
         setItemsError(
@@ -349,7 +408,7 @@ export function useCampusItems(user: CampusUser, userPhone: string | null, isAdm
     async (rawDescription: string, linkedItem?: CampusItem | null): Promise<boolean> => {
       const normalizedPhone = userPhone?.trim() || '';
       if (normalizedPhone.length < CAMPUS_ITEM_LIMITS.phoneMin) {
-        setItemsError('Please enter and save your phone number before creating a request.');
+        setItemsError('Please complete your student profile before creating a request.');
         return false;
       }
 
@@ -420,7 +479,7 @@ export function useCampusItems(user: CampusUser, userPhone: string | null, isAdm
     async (request: CampusRequest): Promise<boolean> => {
       const normalizedPhone = userPhone?.trim() || '';
       if (normalizedPhone.length < CAMPUS_ITEM_LIMITS.phoneMin) {
-        setItemsError('Please enter and save your phone number before accepting a request.');
+        setItemsError('Please complete your student profile before accepting a request.');
         return false;
       }
 

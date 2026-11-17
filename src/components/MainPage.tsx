@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import {
   AlertCircle,
   Bell,
@@ -15,14 +15,24 @@ import {
   Phone,
   Plus,
   Search,
+  ShoppingBag,
   Star,
   Trash2,
   UserCheck,
+  UserRound,
   X,
 } from 'lucide-react';
-import type { CampusItem, CampusRequest, ExchangeRating } from '../data/campusItems';
-import type { CampusUser } from '../hooks/useAuth';
+import {
+  formatInr,
+  type CampusItem,
+  type CampusRequest,
+  type ExchangeRating,
+  type ListingType,
+} from '../data/campusItems';
+import type { CampusUser, StudentProfile } from '../hooks/useAuth';
 import { useCampusItems } from '../hooks/useCampusItems';
+import { usePayments } from '../hooks/usePayments';
+import { usePublicProfiles } from '../hooks/usePublicProfiles';
 import {
   buildExchangeSummary,
   formatRemainingEditWindow,
@@ -30,37 +40,50 @@ import {
   useRatings,
 } from '../hooks/useRatings';
 import type { AuthFeedback } from '../lib/firebase';
+import {
+  formatBranchSemester,
+  JDCOEM_BRANCHES,
+  JDCOEM_SEMESTERS,
+  STUDENT_PROFILE_LIMITS,
+  type StudentProfileInput,
+} from '../lib/profileUtils';
 import { AddItemModal } from './AddItemModal';
 import { DeleteConfirmModal, type DeleteTarget } from './DeleteConfirmModal';
 import { NewRequestModal } from './NewRequestModal';
-import { PhoneRequiredModal } from './PhoneRequiredModal';
+import { PaymentModal } from './PaymentModal';
 import {
   ProfileReviewsPanel,
   type ProfileReviewCandidate,
 } from './ProfileReviewsPanel';
 import { RateExchangeModal, type RateModalTarget } from './RateExchangeModal';
 import { StarRatingDisplay } from './StarRatingDisplay';
+import { StudentProfileModal } from './StudentProfileModal';
+import { TransactionsPanel } from './TransactionsPanel';
 
 interface MainPageProps {
   user: CampusUser;
+  studentProfile: StudentProfile | null;
   userPhone: string | null;
+  hasCompleteProfile: boolean;
   isAdmin: boolean;
   profileLoading: boolean;
-  savingPhone: boolean;
-  phoneError: string | null;
+  savingProfile: boolean;
+  profileError: string | null;
   signingOut: boolean;
   error: AuthFeedback | null;
-  onSavePhone: (phone: string) => Promise<boolean>;
-  onClearPhoneError: () => void;
+  onSaveProfile: (input: StudentProfileInput) => Promise<boolean>;
+  onClearProfileError: () => void;
   onSignOut: () => Promise<void>;
   onDismissError: () => void;
 }
 
-type ActiveView = 'items' | 'shared-requests' | 'my-requests' | 'profile-reviews';
+type ActiveView = 'items' | 'shared-requests' | 'my-requests' | 'profile-reviews' | 'transactions';
+type ItemListingFilter = 'all' | ListingType;
 type PendingGateAction =
   | { type: 'add' }
   | { type: 'request'; linkedItem: CampusItem | null }
-  | { type: 'accept'; request: CampusRequest };
+  | { type: 'accept'; request: CampusRequest }
+  | { type: 'buy'; item: CampusItem };
 
 function getInitials(name: string | null, email: string | null): string {
   const source = name?.trim() || email?.trim() || 'S';
@@ -136,31 +159,57 @@ function RequestStatusLabel({ status }: { status: CampusRequest['status'] }) {
 
 export function MainPage({
   user,
+  studentProfile,
   userPhone,
+  hasCompleteProfile,
   isAdmin,
   profileLoading,
-  savingPhone,
-  phoneError,
+  savingProfile,
+  profileError,
   signingOut,
   error,
-  onSavePhone,
-  onClearPhoneError,
+  onSaveProfile,
+  onClearProfileError,
   onSignOut,
   onDismissError,
 }: MainPageProps) {
   const [avatarFailed, setAvatarFailed] = useState(false);
   const [activeView, setActiveView] = useState<ActiveView>('items');
+  const [itemListingFilter, setItemListingFilter] = useState<ItemListingFilter>('all');
   const [searchQuery, setSearchQuery] = useState('');
-  const [inlinePhoneInput, setInlinePhoneInput] = useState('');
+  const [inlineNameInput, setInlineNameInput] = useState(
+    studentProfile?.displayName || user.displayName || ''
+  );
+  const [inlineBranchInput, setInlineBranchInput] = useState(studentProfile?.branch || '');
+  const [inlineSemesterInput, setInlineSemesterInput] = useState(studentProfile?.semester || '');
+  const [inlinePhoneInput, setInlinePhoneInput] = useState(
+    studentProfile?.phoneNumber || userPhone || ''
+  );
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isNewRequestModalOpen, setIsNewRequestModalOpen] = useState(false);
+  const [isEditProfileOpen, setIsEditProfileOpen] = useState(false);
   const [linkedRequestItem, setLinkedRequestItem] = useState<CampusItem | null>(null);
+  const [buyItemTarget, setBuyItemTarget] = useState<CampusItem | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
   const [pendingGateAction, setPendingGateAction] = useState<PendingGateAction | null>(null);
   const [rateTarget, setRateTarget] = useState<RateModalTarget | null>(null);
   const [profileRatingTarget, setProfileRatingTarget] =
     useState<ProfileReviewCandidate | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setInlineNameInput(studentProfile?.displayName || user.displayName || '');
+    setInlineBranchInput(studentProfile?.branch || '');
+    setInlineSemesterInput(studentProfile?.semester || '');
+    setInlinePhoneInput(studentProfile?.phoneNumber || userPhone || '');
+  }, [
+    studentProfile?.displayName,
+    studentProfile?.branch,
+    studentProfile?.semester,
+    studentProfile?.phoneNumber,
+    user.displayName,
+    userPhone,
+  ]);
 
   const {
     allItems,
@@ -199,21 +248,60 @@ export function MainPage({
     clearRatingStatusMessage,
   } = useRatings(user);
 
+  const { publicProfiles, publicProfilesById } = usePublicProfiles(user);
+
+  const {
+    payments,
+    paymentMethods,
+    paymentsLoading,
+    processingPayment,
+    paymentsError,
+    paymentStatusMessage,
+    initiatePayment,
+    verifyPayment,
+    clearPaymentsError,
+    clearPaymentStatusMessage,
+  } = usePayments(user);
+
   const hasPhone = Boolean(userPhone && userPhone.trim().length >= 7);
-  const displayName = user.displayName?.trim() || user.email || 'Campus Student';
-  const initials = getInitials(user.displayName, user.email);
+  const displayName =
+    studentProfile?.displayName?.trim() || user.displayName?.trim() || user.email || 'Campus Student';
+  const defaultPayerRef = useMemo(() => {
+    const emailLocal = user.email?.split('@')[0]?.replace(/[^a-zA-Z0-9._-]/g, '');
+    return emailLocal ? `${emailLocal}@upi` : userPhone || 'student@upi';
+  }, [user.email, userPhone]);
+  const myAcademicMeta = formatBranchSemester(studentProfile?.branch, studentProfile?.semester);
+  const initials = getInitials(displayName, user.email);
   const showAvatarImage = Boolean(user.photoURL && !avatarFailed);
   const normalizedQuery = searchQuery.trim().toLowerCase();
 
+  const initialProfileFormValues: StudentProfileInput = {
+    displayName: studentProfile?.displayName || user.displayName || '',
+    branch: studentProfile?.branch || '',
+    semester: studentProfile?.semester || '',
+    phoneNumber: studentProfile?.phoneNumber || userPhone || '',
+  };
+
   const filteredAllItems = useMemo(() => {
-    if (!normalizedQuery) return allItems;
-    return allItems.filter(
-      (item) =>
+    return allItems.filter((item) => {
+      if (itemListingFilter !== 'all' && item.listingType !== itemListingFilter) {
+        return false;
+      }
+      if (!normalizedQuery) return true;
+      const authorPublic = publicProfilesById[item.authorId];
+      const listingWords = item.listingType === 'sell' ? 'sell sale buy permanent' : 'lend borrow';
+      return (
         item.title.toLowerCase().includes(normalizedQuery) ||
         item.description.toLowerCase().includes(normalizedQuery) ||
-        item.authorName.toLowerCase().includes(normalizedQuery)
-    );
-  }, [allItems, normalizedQuery]);
+        item.authorName.toLowerCase().includes(normalizedQuery) ||
+        item.status.toLowerCase().includes(normalizedQuery) ||
+        listingWords.includes(normalizedQuery) ||
+        (item.listingType === 'sell' && String(item.price).includes(normalizedQuery)) ||
+        (authorPublic?.branch && authorPublic.branch.toLowerCase().includes(normalizedQuery)) ||
+        (authorPublic?.semester && authorPublic.semester.toLowerCase().includes(normalizedQuery))
+      );
+    });
+  }, [allItems, itemListingFilter, normalizedQuery, publicProfilesById]);
 
   const filteredSharedRequests = useMemo(() => {
     if (!normalizedQuery) return sharedRequests;
@@ -247,6 +335,9 @@ export function MainPage({
       }
     };
 
+    for (const profile of publicProfiles) {
+      addCandidate(profile.uid, profile.displayName);
+    }
     for (const item of allItems) {
       addCandidate(item.authorId, item.authorName);
     }
@@ -263,7 +354,15 @@ export function MainPage({
     }
 
     return Array.from(byId.values());
-  }, [allItems, displayName, profileRatingTarget, ratings, sharedRequests, user.uid]);
+  }, [
+    allItems,
+    displayName,
+    profileRatingTarget,
+    publicProfiles,
+    ratings,
+    sharedRequests,
+    user.uid,
+  ]);
 
   const selectedProfile: ProfileReviewCandidate = profileRatingTarget ?? {
     userId: user.uid,
@@ -276,8 +375,8 @@ export function MainPage({
   }
 
   function handleOpenAddItem() {
-    if (!hasPhone) {
-      onClearPhoneError();
+    if (!hasCompleteProfile) {
+      onClearProfileError();
       setPendingGateAction({ type: 'add' });
       return;
     }
@@ -285,8 +384,8 @@ export function MainPage({
   }
 
   function handleOpenNewRequest(linkedItem: CampusItem | null = null) {
-    if (!hasPhone) {
-      onClearPhoneError();
+    if (!hasCompleteProfile) {
+      onClearProfileError();
       setPendingGateAction({ type: 'request', linkedItem });
       return;
     }
@@ -294,26 +393,41 @@ export function MainPage({
     setIsNewRequestModalOpen(true);
   }
 
+  function handleOpenBuyItem(item: CampusItem) {
+    if (!hasCompleteProfile) {
+      onClearProfileError();
+      setPendingGateAction({ type: 'buy', item });
+      return;
+    }
+    clearPaymentsError();
+    setBuyItemTarget(item);
+  }
+
   async function handleAcceptRequestClick(req: CampusRequest) {
-    if (!hasPhone) {
-      onClearPhoneError();
+    if (!hasCompleteProfile) {
+      onClearProfileError();
       setPendingGateAction({ type: 'accept', request: req });
       return;
     }
     await acceptRequest(req);
   }
 
-  async function handleInlinePhoneSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleInlineProfileSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const saved = await onSavePhone(inlinePhoneInput);
-    if (saved) {
-      setInlinePhoneInput('');
-    }
+    await onSaveProfile({
+      displayName: inlineNameInput,
+      branch: inlineBranchInput,
+      semester: inlineSemesterInput,
+      phoneNumber: inlinePhoneInput,
+    });
   }
 
-  async function handleModalPhoneSave(rawPhone: string): Promise<boolean> {
-    const saved = await onSavePhone(rawPhone);
+  async function handleModalProfileSave(input: StudentProfileInput): Promise<boolean> {
+    const saved = await onSaveProfile(input);
     if (saved) {
+      if (isEditProfileOpen) {
+        setIsEditProfileOpen(false);
+      }
       const nextAction = pendingGateAction;
       setPendingGateAction(null);
       if (nextAction?.type === 'add') {
@@ -323,6 +437,9 @@ export function MainPage({
         setIsNewRequestModalOpen(true);
       } else if (nextAction?.type === 'accept') {
         await acceptRequest(nextAction.request);
+      } else if (nextAction?.type === 'buy') {
+        clearPaymentsError();
+        setBuyItemTarget(nextAction.item);
       }
     }
     return saved;
@@ -338,7 +455,11 @@ export function MainPage({
   }
 
   function handleOpenProfileRatings(userId: string, userName: string) {
-    setProfileRatingTarget({ userId, displayName: userName });
+    const publicMatch = publicProfilesById[userId];
+    setProfileRatingTarget({
+      userId,
+      displayName: publicMatch?.displayName || userName,
+    });
     setActiveView('profile-reviews');
     setSearchQuery('');
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -347,12 +468,14 @@ export function MainPage({
   function handleOpenCreateRating(req: CampusRequest) {
     if (req.status !== 'Fulfilled' || !req.acceptedById) return;
     const isBorrower = req.requesterId === user.uid;
+    const rateeId = isBorrower ? req.acceptedById : req.requesterId;
+    const rateePublic = publicProfilesById[rateeId];
     setRateTarget({
       mode: 'create',
       request: req,
-      rateeName: isBorrower
-        ? req.acceptedByName || 'Lender'
-        : req.requesterName || 'Borrower',
+      rateeName:
+        rateePublic?.displayName ||
+        (isBorrower ? req.acceptedByName || 'Lender' : req.requesterName || 'Borrower'),
       raterRole: isBorrower ? 'borrower' : 'lender',
       exchangeSummary: buildExchangeSummary(req),
     });
@@ -362,7 +485,7 @@ export function MainPage({
     setRateTarget({
       mode: 'edit',
       existingRating: rating,
-      rateeName: rating.rateeName,
+      rateeName: publicProfilesById[rating.rateeId]?.displayName || rating.rateeName,
       raterRole: rating.raterRole,
       exchangeSummary: rating.exchangeSummary,
     });
@@ -440,6 +563,20 @@ export function MainPage({
           const isUpdating = updatingRequestId === req.id;
           const canAccept = req.status === 'Open' && !isRequester;
           const canFulfill = req.status === 'Accepted' && (isRequester || isAccepter);
+          const requesterPublic = publicProfilesById[req.requesterId];
+          const requesterDisplay = requesterPublic?.displayName || req.requesterName;
+          const requesterAcademic = formatBranchSemester(
+            requesterPublic?.branch,
+            requesterPublic?.semester
+          );
+          const accepterPublic = req.acceptedById
+            ? publicProfilesById[req.acceptedById]
+            : undefined;
+          const accepterDisplay = accepterPublic?.displayName || req.acceptedByName;
+          const accepterAcademic = formatBranchSemester(
+            accepterPublic?.branch,
+            accepterPublic?.semester
+          );
 
           return (
             <article
@@ -479,12 +616,15 @@ export function MainPage({
                         <p>
                           Requested by{' '}
                           <span className="font-semibold text-slate-900">
-                            {isRequester ? 'You' : req.requesterName}
+                            {isRequester ? 'You' : requesterDisplay}
                           </span>
                         </p>
+                        {requesterAcademic && (
+                          <p className="text-[11px] text-slate-500 mt-0.5">{requesterAcademic}</p>
+                        )}
                         <StarRatingDisplay
                           userId={req.requesterId}
-                          userName={isRequester ? displayName : req.requesterName}
+                          userName={isRequester ? displayName : requesterDisplay}
                           summary={ratingSummaryByUserId[req.requesterId]}
                           onOpenProfile={handleOpenProfileRatings}
                           compact
@@ -501,18 +641,21 @@ export function MainPage({
                       )}
                     </div>
 
-                    {req.acceptedById && req.acceptedByName && (
+                    {req.acceptedById && accepterDisplay && (
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0">
                           <p>
                             Accepted by{' '}
                             <span className="font-semibold text-slate-900">
-                              {isAccepter ? 'You' : req.acceptedByName}
+                              {isAccepter ? 'You' : accepterDisplay}
                             </span>
                           </p>
+                          {accepterAcademic && (
+                            <p className="text-[11px] text-slate-500 mt-0.5">{accepterAcademic}</p>
+                          )}
                           <StarRatingDisplay
                             userId={req.acceptedById}
-                            userName={isAccepter ? displayName : req.acceptedByName}
+                            userName={isAccepter ? displayName : accepterDisplay}
                             summary={ratingSummaryByUserId[req.acceptedById]}
                             onOpenProfile={handleOpenProfileRatings}
                             compact
@@ -575,7 +718,7 @@ export function MainPage({
                   </span>
                 ) : req.status === 'Accepted' ? (
                   <span className="text-xs text-slate-600">
-                    Accepted by {req.acceptedByName} · Handover in progress
+                    Accepted by {accepterDisplay} · Handover in progress
                   </span>
                 ) : (isRequester || isAccepter) && req.acceptedById ? (
                   (() => {
@@ -645,7 +788,7 @@ export function MainPage({
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col">
-      {/* Top Bar Contract: Brand — Signed-In Student & Confirmed Phone — Sign Out */}
+      {/* Top Bar Contract: Brand — Signed-In Student & Profile Details — Sign Out */}
       <header className="bg-white border-b border-slate-200 sticky top-0 z-30">
         <div className="max-w-[1200px] mx-auto px-4 sm:px-8 h-16 flex items-center justify-between gap-4 sm:gap-8">
           <div className="flex items-center gap-2.5 whitespace-nowrap shrink-0">
@@ -678,6 +821,14 @@ export function MainPage({
               <span className="font-medium text-slate-800 truncate max-w-[160px]">
                 {displayName}
               </span>
+              {myAcademicMeta && (
+                <>
+                  <span className="text-slate-300" aria-hidden="true">
+                    ·
+                  </span>
+                  <span className="text-xs text-slate-600 whitespace-nowrap">{myAcademicMeta}</span>
+                </>
+              )}
               <span className="text-slate-300" aria-hidden="true">
                 ·
               </span>
@@ -707,24 +858,39 @@ export function MainPage({
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={onSignOut}
-            disabled={signingOut}
-            className="min-h-[40px] px-4 py-2 rounded-lg border border-slate-200 bg-white text-sm font-medium text-slate-700 hover:text-slate-900 hover:bg-slate-50 hover:border-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 focus-visible:ring-offset-2 disabled:opacity-60 disabled:cursor-not-allowed transition-colors duration-150 inline-flex items-center gap-2 whitespace-nowrap shrink-0 cursor-pointer"
-          >
-            {signingOut ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
-                <span>Signing out...</span>
-              </>
-            ) : (
-              <>
-                <LogOut className="w-4 h-4" aria-hidden="true" />
-                <span>Sign out</span>
-              </>
-            )}
-          </button>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => {
+                onClearProfileError();
+                setIsEditProfileOpen(true);
+              }}
+              disabled={!isBackendConfigured}
+              className="min-h-[40px] px-3 py-2 rounded-lg border border-slate-200 bg-white text-xs sm:text-sm font-medium text-slate-700 hover:text-slate-900 hover:bg-slate-50 hover:border-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 focus-visible:ring-offset-2 disabled:opacity-50 transition-colors duration-150 inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer"
+            >
+              <UserRound className="w-4 h-4" aria-hidden="true" />
+              <span className="hidden md:inline">My profile</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={onSignOut}
+              disabled={signingOut}
+              className="min-h-[40px] px-4 py-2 rounded-lg border border-slate-200 bg-white text-sm font-medium text-slate-700 hover:text-slate-900 hover:bg-slate-50 hover:border-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 focus-visible:ring-offset-2 disabled:opacity-60 disabled:cursor-not-allowed transition-colors duration-150 inline-flex items-center gap-2 whitespace-nowrap cursor-pointer"
+            >
+              {signingOut ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
+                  <span>Signing out...</span>
+                </>
+              ) : (
+                <>
+                  <LogOut className="w-4 h-4" aria-hidden="true" />
+                  <span>Sign out</span>
+                </>
+              )}
+            </button>
+          </div>
         </div>
       </header>
 
@@ -808,7 +974,7 @@ export function MainPage({
           </div>
         )}
 
-        {(statusMessage || ratingStatusMessage) && (
+        {(statusMessage || ratingStatusMessage || paymentStatusMessage) && (
           <div
             role="status"
             className="mb-6 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-950 flex items-start gap-3"
@@ -818,13 +984,14 @@ export function MainPage({
               aria-hidden="true"
             />
             <p className="flex-1 min-w-0 leading-relaxed">
-              {ratingStatusMessage || statusMessage}
+              {paymentStatusMessage || ratingStatusMessage || statusMessage}
             </p>
             <button
               type="button"
               onClick={() => {
                 clearStatusMessage();
                 clearRatingStatusMessage();
+                clearPaymentStatusMessage();
               }}
               aria-label="Dismiss confirmation"
               className="p-1 rounded-md text-emerald-800 hover:bg-emerald-100 transition-colors cursor-pointer"
@@ -834,18 +1001,21 @@ export function MainPage({
           </div>
         )}
 
-        {(itemsError || ratingsError) && (
+        {(itemsError || ratingsError || paymentsError) && (
           <div
             role="alert"
             className="mb-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-950 flex items-start gap-3"
           >
             <AlertCircle className="w-5 h-5 text-red-700 shrink-0 mt-0.5" aria-hidden="true" />
-            <p className="flex-1 min-w-0 leading-relaxed">{ratingsError || itemsError}</p>
+            <p className="flex-1 min-w-0 leading-relaxed">
+              {paymentsError || ratingsError || itemsError}
+            </p>
             <button
               type="button"
               onClick={() => {
                 clearItemsError();
                 clearRatingsError();
+                clearPaymentsError();
               }}
               aria-label="Dismiss error"
               className="p-1 rounded-md text-red-800 hover:bg-red-100 transition-colors cursor-pointer"
@@ -888,6 +1058,14 @@ export function MainPage({
                 <div className="min-w-0">
                   <p className="text-sm font-medium text-slate-800 truncate">{displayName}</p>
                   <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                    {myAcademicMeta && (
+                      <>
+                        <span className="text-xs text-slate-600">{myAcademicMeta}</span>
+                        <span className="text-slate-300 text-xs" aria-hidden="true">
+                          ·
+                        </span>
+                      </>
+                    )}
                     <StarRatingDisplay
                       userId={user.uid}
                       userName={displayName}
@@ -930,70 +1108,155 @@ export function MainPage({
           </div>
         </section>
 
-        {/* Post-Login Phone Number Prompt Banner */}
-        {!profileLoading && !hasPhone && isBackendConfigured && (
+        {/* Post-Login Student Profile Onboarding Banner */}
+        {!profileLoading && !hasCompleteProfile && isBackendConfigured && (
           <section
-            aria-label="Phone number verification"
+            aria-label="Student profile setup"
             className="mt-6 bg-amber-50 border border-amber-200 rounded-2xl p-5 sm:p-6"
           >
-            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-5">
-              <div className="flex items-start gap-3.5 max-w-2xl">
-                <div className="w-10 h-10 rounded-xl bg-white border border-amber-200 text-amber-700 flex items-center justify-center shrink-0">
-                  <Phone className="w-5 h-5" aria-hidden="true" />
-                </div>
-                <div>
-                  <h2 className="font-display text-base font-bold text-slate-900">
-                    Enter your phone number to add, request, or accept items
-                  </h2>
-                  <p className="mt-1 text-sm text-slate-700 leading-relaxed">
-                    You can browse shared items and requests now. Saving your phone number is
-                    required before posting or accepting so students can confirm pickups.
-                  </p>
-                </div>
+            <div className="flex items-start gap-3.5 max-w-3xl">
+              <div className="w-10 h-10 rounded-xl bg-white border border-amber-200 text-amber-700 flex items-center justify-center shrink-0">
+                <UserRound className="w-5 h-5" aria-hidden="true" />
+              </div>
+              <div>
+                <h2 className="font-display text-base font-bold text-slate-900">
+                  Set up your JDCOEM student profile to add, request, or accept items
+                </h2>
+                <p className="mt-1 text-sm text-slate-700 leading-relaxed">
+                  You can browse shared items and requests now. Saving your name, branch, semester
+                  number, and phone number is required before sharing or borrowing so classmates
+                  know who they are exchanging with.
+                </p>
+              </div>
+            </div>
+
+            <form
+              onSubmit={handleInlineProfileSubmit}
+              className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 items-end"
+              noValidate
+            >
+              <div>
+                <label
+                  htmlFor="inline-profile-name"
+                  className="block text-xs font-medium text-slate-800 mb-1"
+                >
+                  Full name
+                </label>
+                <input
+                  id="inline-profile-name"
+                  type="text"
+                  required
+                  maxLength={STUDENT_PROFILE_LIMITS.displayNameMax}
+                  value={inlineNameInput}
+                  onChange={(event) => {
+                    setInlineNameInput(event.target.value);
+                    if (profileError) onClearProfileError();
+                  }}
+                  placeholder="Your full name"
+                  disabled={savingProfile}
+                  className="w-full min-h-[44px] px-3.5 py-2 rounded-xl border border-amber-300 bg-white text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-700 focus:border-blue-700"
+                />
               </div>
 
-              <form
-                onSubmit={handleInlinePhoneSubmit}
-                className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 shrink-0 w-full lg:w-auto"
-                noValidate
-              >
-                <label htmlFor="inline-phone-input" className="sr-only">
+              <div>
+                <label
+                  htmlFor="inline-profile-branch"
+                  className="block text-xs font-medium text-slate-800 mb-1"
+                >
+                  Branch
+                </label>
+                <input
+                  id="inline-profile-branch"
+                  type="text"
+                  list="inline-jdcoem-branch-list"
+                  required
+                  maxLength={STUDENT_PROFILE_LIMITS.branchMax}
+                  value={inlineBranchInput}
+                  onChange={(event) => {
+                    setInlineBranchInput(event.target.value);
+                    if (profileError) onClearProfileError();
+                  }}
+                  placeholder="e.g., CSE"
+                  disabled={savingProfile}
+                  className="w-full min-h-[44px] px-3.5 py-2 rounded-xl border border-amber-300 bg-white text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-700 focus:border-blue-700"
+                />
+                <datalist id="inline-jdcoem-branch-list">
+                  {JDCOEM_BRANCHES.map((branchOption) => (
+                    <option key={branchOption} value={branchOption} />
+                  ))}
+                </datalist>
+              </div>
+
+              <div>
+                <label
+                  htmlFor="inline-profile-semester"
+                  className="block text-xs font-medium text-slate-800 mb-1"
+                >
+                  Semester no.
+                </label>
+                <select
+                  id="inline-profile-semester"
+                  required
+                  value={inlineSemesterInput}
+                  onChange={(event) => {
+                    setInlineSemesterInput(event.target.value);
+                    if (profileError) onClearProfileError();
+                  }}
+                  disabled={savingProfile}
+                  className="w-full min-h-[44px] px-3.5 py-2 rounded-xl border border-amber-300 bg-white text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-700 focus:border-blue-700 cursor-pointer"
+                >
+                  <option value="">Select sem</option>
+                  {JDCOEM_SEMESTERS.map((semOption) => (
+                    <option key={semOption} value={semOption}>
+                      {semOption}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label
+                  htmlFor="inline-profile-phone"
+                  className="block text-xs font-medium text-slate-800 mb-1"
+                >
                   Phone number
                 </label>
                 <input
-                  id="inline-phone-input"
+                  id="inline-profile-phone"
                   type="tel"
                   autoComplete="tel"
                   required
+                  maxLength={STUDENT_PROFILE_LIMITS.phoneMax}
                   value={inlinePhoneInput}
                   onChange={(event) => {
                     setInlinePhoneInput(event.target.value);
-                    if (phoneError) onClearPhoneError();
+                    if (profileError) onClearProfileError();
                   }}
-                  placeholder="e.g., (555) 234-5678"
-                  disabled={savingPhone}
-                  className="min-h-[44px] sm:w-56 px-3.5 py-2 rounded-xl border border-amber-300 bg-white text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-700 focus:border-blue-700"
+                  placeholder="e.g., 9876543210"
+                  disabled={savingProfile}
+                  className="w-full min-h-[44px] px-3.5 py-2 rounded-xl border border-amber-300 bg-white text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-700 focus:border-blue-700"
                 />
-                <button
-                  type="submit"
-                  disabled={savingPhone}
-                  className="min-h-[44px] px-4 py-2 rounded-xl bg-slate-900 text-white text-sm font-medium hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 focus-visible:ring-offset-2 inline-flex items-center justify-center gap-2 whitespace-nowrap cursor-pointer disabled:opacity-60"
-                >
-                  {savingPhone ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
-                      <span>Saving...</span>
-                    </>
-                  ) : (
-                    <span>Save phone number</span>
-                  )}
-                </button>
-              </form>
-            </div>
+              </div>
 
-            {phoneError && !pendingGateAction && (
+              <button
+                type="submit"
+                disabled={savingProfile}
+                className="w-full min-h-[44px] px-4 py-2 rounded-xl bg-slate-900 text-white text-sm font-medium hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 focus-visible:ring-offset-2 inline-flex items-center justify-center gap-2 whitespace-nowrap cursor-pointer disabled:opacity-60"
+              >
+                {savingProfile ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
+                    <span>Saving...</span>
+                  </>
+                ) : (
+                  <span>Save profile</span>
+                )}
+              </button>
+            </form>
+
+            {profileError && !pendingGateAction && !isEditProfileOpen && (
               <p role="alert" className="mt-3 text-sm font-medium text-red-700">
-                {phoneError}
+                {profileError}
               </p>
             )}
           </section>
@@ -1071,11 +1334,27 @@ export function MainPage({
                   ({ratings.length})
                 </span>
               </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeView === 'transactions'}
+                onClick={() => setActiveView('transactions')}
+                className={`min-h-[38px] px-3.5 py-1.5 rounded-lg text-sm font-medium transition-colors duration-150 whitespace-nowrap shrink-0 cursor-pointer ${
+                  activeView === 'transactions'
+                    ? 'bg-white text-slate-900 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Transactions{' '}
+                <span className="ml-1 text-xs text-slate-500 tabular-nums">
+                  ({payments.length})
+                </span>
+              </button>
             </div>
 
             <div className="relative flex-1 max-w-xl w-full">
               <label htmlFor="campus-search" className="sr-only">
-                Search shared items, requests, or profile reviews
+                Search shared items, requests, reviews, or transactions
               </label>
               <Search
                 className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none"
@@ -1089,10 +1368,12 @@ export function MainPage({
                 onChange={(event) => setSearchQuery(event.target.value)}
                 placeholder={
                   activeView === 'items'
-                    ? 'Search shared items by name, note, or student...'
+                    ? 'Search items by name, lend/sale, price, student, or branch...'
                     : activeView === 'profile-reviews'
                       ? 'Search reviews by comment, author, or exchange...'
-                      : 'Search requests by description, student, or status...'
+                      : activeView === 'transactions'
+                        ? 'Search transactions by item, reference ID, status, or method...'
+                        : 'Search requests by description, student, or status...'
                 }
                 className="w-full min-h-[44px] pl-10 pr-20 py-2.5 rounded-xl border border-slate-300 bg-white text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-700 focus:border-blue-700"
               />
@@ -1110,15 +1391,44 @@ export function MainPage({
             </div>
           </div>
 
-          <p className="mt-3 text-xs sm:text-sm text-slate-500">
-            {activeView === 'items'
-              ? 'Shared items posted by students across devices · Live updates enabled'
-              : activeView === 'shared-requests'
-                ? 'Shared requests from all signed-in users · Accept an Open request to help a student'
-                : activeView === 'my-requests'
-                  ? 'Requests created by you · Track Open, Accepted, and Fulfilled status'
-                  : 'Public exchange ratings and comments visible to all signed-in students'}
-          </p>
+          <div className="mt-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <p className="text-xs sm:text-sm text-slate-500">
+              {activeView === 'items'
+                ? 'Borrow shared essentials or buy permanent-sale items from JDCOEM students'
+                : activeView === 'shared-requests'
+                  ? 'Shared requests from all signed-in users · Accept an Open request to help a student'
+                  : activeView === 'my-requests'
+                    ? 'Requests created by you · Track Open, Accepted, and Fulfilled status'
+                    : activeView === 'transactions'
+                      ? 'Backend-verified purchase and sale receipts across Campus UPI and Campus Direct Pay'
+                      : 'Public student profiles and exchange ratings visible to all JDCOEM students'}
+            </p>
+
+            {activeView === 'items' && (
+              <div className="inline-flex items-center p-1 bg-slate-200/70 rounded-xl self-start sm:self-auto">
+                {(
+                  [
+                    { id: 'all', label: 'All Items' },
+                    { id: 'lend', label: 'Lend & Borrow' },
+                    { id: 'sell', label: 'Permanent Sale' },
+                  ] as const
+                ).map((option) => (
+                  <button
+                    key={option.id}
+                    type="button"
+                    onClick={() => setItemListingFilter(option.id)}
+                    className={`min-h-[34px] px-3 py-1 rounded-lg text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
+                      itemListingFilter === option.id
+                        ? 'bg-white text-slate-900 shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </section>
 
         {/* Active View Content */}
@@ -1127,12 +1437,25 @@ export function MainPage({
             <ProfileReviewsPanel
               selectedProfile={selectedProfile}
               availableProfiles={availableProfiles}
+              publicProfilesById={publicProfilesById}
               ratingSummaryByUserId={ratingSummaryByUserId}
               currentUserId={user.uid}
               searchQuery={searchQuery}
               loading={ratingsLoading}
               onSelectProfile={(id, name) => setProfileRatingTarget({ userId: id, displayName: name })}
               onEditRating={handleOpenEditRating}
+              onOpenEditProfile={() => {
+                onClearProfileError();
+                setIsEditProfileOpen(true);
+              }}
+              onClearSearch={handleClearSearch}
+            />
+          ) : activeView === 'transactions' ? (
+            <TransactionsPanel
+              payments={payments}
+              currentUserId={user.uid}
+              searchQuery={searchQuery}
+              loading={paymentsLoading}
               onClearSearch={handleClearSearch}
             />
           ) : loading ? (
@@ -1164,17 +1487,36 @@ export function MainPage({
                 No matching items found
               </h2>
               <p className="mt-2 text-sm text-slate-600 leading-relaxed">
-                Nothing matched “
-                <span className="font-medium text-slate-900">{searchQuery.trim()}</span>”. Try a
-                different item name or reset your search.
+                {normalizedQuery ? (
+                  <>
+                    Nothing matched “
+                    <span className="font-medium text-slate-900">{searchQuery.trim()}</span>”. Try
+                    clearing your search or switching listing filters.
+                  </>
+                ) : (
+                  'No items have been listed under this filter yet.'
+                )}
               </p>
-              <button
-                type="button"
-                onClick={handleClearSearch}
-                className="mt-6 min-h-[40px] px-4 py-2 rounded-xl border border-slate-300 bg-white text-sm font-medium text-slate-700 hover:bg-slate-50 cursor-pointer"
-              >
-                Clear search
-              </button>
+              <div className="mt-6 flex items-center justify-center gap-3">
+                {normalizedQuery && (
+                  <button
+                    type="button"
+                    onClick={handleClearSearch}
+                    className="min-h-[40px] px-4 py-2 rounded-xl border border-slate-300 bg-white text-sm font-medium text-slate-700 hover:bg-slate-50 cursor-pointer"
+                  >
+                    Clear search
+                  </button>
+                )}
+                {itemListingFilter !== 'all' && (
+                  <button
+                    type="button"
+                    onClick={() => setItemListingFilter('all')}
+                    className="min-h-[40px] px-4 py-2 rounded-xl bg-blue-700 text-white text-sm font-medium hover:bg-blue-800 cursor-pointer"
+                  >
+                    Show all items
+                  </button>
+                )}
+              </div>
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -1182,6 +1524,14 @@ export function MainPage({
                 const isOwner = !item.isStarter && item.authorId === user.uid;
                 const canDelete = !item.isStarter && (isOwner || isAdmin);
                 const isDeletingThis = deletingId === item.id;
+                const isPermanentSale = item.listingType === 'sell';
+                const isSold = item.status === 'Sold';
+                const authorPublic = publicProfilesById[item.authorId];
+                const authorDisplay = authorPublic?.displayName || item.authorName;
+                const authorAcademic = formatBranchSemester(
+                  authorPublic?.branch,
+                  authorPublic?.semester
+                );
 
                 return (
                   <article
@@ -1193,9 +1543,17 @@ export function MainPage({
 
                       <div className="p-5">
                         <p className="text-xs font-medium text-slate-500 flex flex-wrap items-center gap-x-2 gap-y-1">
-                          <span className="text-blue-700">{item.category}</span>
+                          <span className={isPermanentSale ? 'text-emerald-700 font-semibold' : 'text-blue-700'}>
+                            {isPermanentSale ? 'Permanent Sale' : item.category}
+                          </span>
                           <span aria-hidden="true">·</span>
-                          <span>{item.status}</span>
+                          <span className={isPermanentSale ? 'font-semibold text-slate-900 tabular-nums' : ''}>
+                            {isPermanentSale ? formatInr(item.price) : 'Free borrow'}
+                          </span>
+                          <span aria-hidden="true">·</span>
+                          <span className={isSold ? 'font-semibold text-amber-700' : ''}>
+                            {item.status}
+                          </span>
                           {isOwner && (
                             <>
                               <span aria-hidden="true">·</span>
@@ -1211,17 +1569,37 @@ export function MainPage({
                         <p className="mt-2 text-sm text-slate-600 leading-relaxed line-clamp-3">
                           {item.description}
                         </p>
+
+                        {isPermanentSale && isSold && (
+                          <p className="mt-2.5 text-xs font-medium text-emerald-800">
+                            Sold to{' '}
+                            {item.soldToId === user.uid
+                              ? 'You'
+                              : item.soldToName || 'a fellow student'}
+                          </p>
+                        )}
                       </div>
                     </div>
 
                     <div className="px-5 py-3.5 border-t border-slate-100 flex items-center justify-between gap-3">
                       <div className="min-w-0">
                         <p className="text-xs font-medium text-slate-700 truncate">
-                          {isOwner ? 'Added by You' : `Added by ${item.authorName}`}
+                          {isOwner
+                            ? isPermanentSale
+                              ? 'Listed by You'
+                              : 'Added by You'
+                            : isPermanentSale
+                              ? `Listed by ${authorDisplay}`
+                              : `Added by ${authorDisplay}`}
                         </p>
+                        {authorAcademic && (
+                          <p className="text-[11px] text-slate-500 truncate mt-0.5">
+                            {authorAcademic}
+                          </p>
+                        )}
                         <StarRatingDisplay
                           userId={item.authorId}
-                          userName={isOwner ? displayName : item.authorName}
+                          userName={isOwner ? displayName : authorDisplay}
                           summary={ratingSummaryByUserId[item.authorId]}
                           onOpenProfile={handleOpenProfileRatings}
                         />
@@ -1232,7 +1610,18 @@ export function MainPage({
                       </div>
 
                       <div className="flex items-center gap-2 shrink-0">
-                        {!isOwner && (
+                        {!isOwner && isPermanentSale && !isSold && (
+                          <button
+                            type="button"
+                            onClick={() => handleOpenBuyItem(item)}
+                            disabled={!isBackendConfigured}
+                            className="min-h-[38px] px-3.5 py-1.5 rounded-lg bg-emerald-700 text-white text-xs font-medium hover:bg-emerald-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-700 transition-colors inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50 tabular-nums"
+                          >
+                            <ShoppingBag className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                            <span>Buy · {formatInr(item.price)}</span>
+                          </button>
+                        )}
+                        {!isOwner && !isPermanentSale && (
                           <button
                             type="button"
                             onClick={() => handleOpenNewRequest(item)}
@@ -1270,14 +1659,19 @@ export function MainPage({
         </section>
       </main>
 
-      <PhoneRequiredModal
-        isOpen={Boolean(pendingGateAction)}
+      <StudentProfileModal
+        isOpen={Boolean(pendingGateAction) || isEditProfileOpen}
+        mode={isEditProfileOpen && !pendingGateAction ? 'edit' : 'complete'}
         reason={pendingGateAction?.type ?? null}
-        savingPhone={savingPhone}
-        phoneError={phoneError}
-        onClose={() => setPendingGateAction(null)}
-        onSavePhone={handleModalPhoneSave}
-        onClearError={onClearPhoneError}
+        initialProfile={initialProfileFormValues}
+        savingProfile={savingProfile}
+        profileError={profileError}
+        onClose={() => {
+          setPendingGateAction(null);
+          setIsEditProfileOpen(false);
+        }}
+        onSaveProfile={handleModalProfileSave}
+        onClearError={onClearProfileError}
       />
 
       <AddItemModal
@@ -1310,6 +1704,21 @@ export function MainPage({
         submitting={submittingRating}
         onClose={() => setRateTarget(null)}
         onSubmit={handleRateSubmit}
+      />
+
+      <PaymentModal
+        item={buyItemTarget}
+        sellerDisplayName={
+          buyItemTarget
+            ? publicProfilesById[buyItemTarget.authorId]?.displayName || buyItemTarget.authorName
+            : ''
+        }
+        defaultPayerRef={defaultPayerRef}
+        paymentMethods={paymentMethods}
+        processing={processingPayment}
+        onClose={() => setBuyItemTarget(null)}
+        onInitiatePayment={initiatePayment}
+        onVerifyPayment={verifyPayment}
       />
     </div>
   );

@@ -11,21 +11,23 @@ import { useAuth } from './hooks/useAuth';
 export default function App() {
   const {
     user,
+    studentProfile,
     phoneNumber,
+    hasCompleteProfile,
     isAdmin,
     initializing,
     profileLoading,
     signingIn,
-    savingPhone,
+    savingProfile,
     signingOut,
     error,
-    phoneError,
+    profileError,
     isConfigured,
     signInWithGoogle,
-    savePhoneNumber,
+    saveProfile,
     signOutUser,
     clearError,
-    clearPhoneError,
+    clearProfileError,
   } = useAuth();
 
   if (initializing) {
@@ -46,15 +48,17 @@ export default function App() {
     return (
       <MainPage
         user={user}
+        studentProfile={studentProfile}
         userPhone={phoneNumber}
+        hasCompleteProfile={hasCompleteProfile}
         isAdmin={isAdmin}
         profileLoading={profileLoading}
-        savingPhone={savingPhone}
-        phoneError={phoneError}
+        savingProfile={savingProfile}
+        profileError={profileError}
         signingOut={signingOut}
         error={error}
-        onSavePhone={savePhoneNumber}
-        onClearPhoneError={clearPhoneError}
+        onSaveProfile={saveProfile}
+        onClearProfileError={clearProfileError}
         onSignOut={signOutUser}
         onDismissError={clearError}
       />

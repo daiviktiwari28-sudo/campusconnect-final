@@ -2,7 +2,7 @@
   "entities": {
     "UserProfile": {
       "title": "UserProfile",
-      "description": "Private student profile storing the confirmed phone number entered after login.",
+      "description": "Private JDCOEM student profile storing name, branch, semester, and confirmed phone number.",
       "type": "object",
       "properties": {
         "uid": {
@@ -13,9 +13,21 @@
         },
         "displayName": {
           "type": "string",
-          "description": "Student display name.",
-          "minLength": 1,
+          "description": "Student full name.",
+          "minLength": 2,
           "maxLength": 80
+        },
+        "branch": {
+          "type": "string",
+          "description": "Academic branch or department (e.g., CSE, IT, ETC, ME).",
+          "minLength": 2,
+          "maxLength": 60
+        },
+        "semester": {
+          "type": "string",
+          "description": "Current semester number (e.g., Sem 1 to Sem 8).",
+          "minLength": 1,
+          "maxLength": 20
         },
         "phoneNumber": {
           "type": "string",
@@ -34,7 +46,51 @@
           "description": "Server timestamp when the profile was last updated."
         }
       },
-      "required": ["uid", "displayName", "phoneNumber", "createdAt", "updatedAt"]
+      "required": ["uid", "displayName", "branch", "semester", "phoneNumber", "createdAt", "updatedAt"]
+    },
+    "PublicProfile": {
+      "title": "PublicProfile",
+      "description": "Campus-visible student profile containing non-sensitive details (name, branch, semester) without phone numbers or emails.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Firebase Auth UID.",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Student full name.",
+          "minLength": 2,
+          "maxLength": 80
+        },
+        "branch": {
+          "type": "string",
+          "description": "Academic branch or department.",
+          "minLength": 2,
+          "maxLength": 60
+        },
+        "semester": {
+          "type": "string",
+          "description": "Current semester number.",
+          "minLength": 1,
+          "maxLength": 20
+        },
+        "visibility": {
+          "type": "string",
+          "description": "Campus visibility scope used for scoped public profile queries.",
+          "enum": ["campus"],
+          "minLength": 6,
+          "maxLength": 6
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when the public profile was last updated."
+        }
+      },
+      "required": ["uid", "displayName", "branch", "semester", "visibility", "updatedAt"]
     },
     "AdminUser": {
       "title": "AdminUser",
@@ -78,6 +134,7 @@
           "description": "Category label shown on the item card.",
           "enum": [
             "Shared Item",
+            "Permanent Sale",
             "Chargers & Cables",
             "Calculators & Lab",
             "Lab Equipment",
@@ -87,12 +144,38 @@
           "minLength": 3,
           "maxLength": 40
         },
+        "listingType": {
+          "type": "string",
+          "description": "Whether the item is listed for temporary lending/borrowing or permanent selling.",
+          "enum": ["lend", "sell"],
+          "minLength": 4,
+          "maxLength": 4
+        },
+        "price": {
+          "type": "number",
+          "description": "Selling price in INR (0 for lending/borrowing items, > 0 for permanent sale items)."
+        },
         "status": {
           "type": "string",
           "description": "Availability status label.",
-          "enum": ["Available"],
+          "enum": ["Available", "Sold"],
           "minLength": 3,
           "maxLength": 20
+        },
+        "soldToId": {
+          "type": "string",
+          "description": "Firebase Auth UID of the student who purchased a permanent sale item, or null.",
+          "maxLength": 128
+        },
+        "soldToName": {
+          "type": "string",
+          "description": "Display name of the student who purchased a permanent sale item, or null.",
+          "maxLength": 80
+        },
+        "paymentId": {
+          "type": "string",
+          "description": "Verified payment record ID associated with the purchase, or null.",
+          "maxLength": 128
         },
         "visibility": {
           "type": "string",
@@ -135,7 +218,12 @@
         "description",
         "photoUrl",
         "category",
+        "listingType",
+        "price",
         "status",
+        "soldToId",
+        "soldToName",
+        "paymentId",
         "visibility",
         "authorId",
         "authorName",
@@ -340,12 +428,156 @@
         "createdAt",
         "updatedAt"
       ]
+    },
+    "CampusPayment": {
+      "title": "CampusPayment",
+      "description": "Backend-verified payment record for purchasing a permanent sale item on CampusConnect.",
+      "type": "object",
+      "properties": {
+        "transactionRef": {
+          "type": "string",
+          "description": "Human-readable transaction reference generated by the backend.",
+          "minLength": 6,
+          "maxLength": 40
+        },
+        "itemId": {
+          "type": "string",
+          "description": "ID of the campusItem being purchased.",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "itemTitle": {
+          "type": "string",
+          "description": "Title of the item being purchased.",
+          "minLength": 2,
+          "maxLength": 100
+        },
+        "listingType": {
+          "type": "string",
+          "description": "Must be sell for payable permanent item transactions.",
+          "enum": ["sell"],
+          "minLength": 4,
+          "maxLength": 4
+        },
+        "amount": {
+          "type": "number",
+          "description": "Authoritative item selling price in INR."
+        },
+        "currency": {
+          "type": "string",
+          "description": "Currency code.",
+          "enum": ["INR"],
+          "minLength": 3,
+          "maxLength": 3
+        },
+        "paymentMethod": {
+          "type": "string",
+          "description": "Built-in CampusConnect payment method selected by the buyer.",
+          "enum": ["Campus UPI", "Campus Direct Pay"],
+          "minLength": 3,
+          "maxLength": 40
+        },
+        "payerAccountRef": {
+          "type": "string",
+          "description": "Masked payer UPI ID or campus reference label.",
+          "minLength": 2,
+          "maxLength": 80
+        },
+        "status": {
+          "type": "string",
+          "description": "Payment verification status.",
+          "enum": ["Pending", "Successful", "Failed"],
+          "minLength": 6,
+          "maxLength": 20
+        },
+        "verifiedByBackend": {
+          "type": "boolean",
+          "description": "True only after the Express backend verifies the payment."
+        },
+        "verificationCode": {
+          "type": "string",
+          "description": "Backend-issued HMAC verification token/signature.",
+          "minLength": 16,
+          "maxLength": 128
+        },
+        "failureReason": {
+          "type": "string",
+          "description": "Error reason if payment status is Failed, or null.",
+          "maxLength": 200
+        },
+        "buyerId": {
+          "type": "string",
+          "description": "Firebase Auth UID of the buyer.",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "buyerName": {
+          "type": "string",
+          "description": "Display name of the buyer.",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "sellerId": {
+          "type": "string",
+          "description": "Firebase Auth UID of the seller.",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "sellerName": {
+          "type": "string",
+          "description": "Display name of the seller.",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "visibility": {
+          "type": "string",
+          "description": "Restricted visibility scope limiting reads strictly to buyer and seller.",
+          "enum": ["private"],
+          "minLength": 7,
+          "maxLength": 7
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when the payment was initiated."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when the payment was last updated."
+        }
+      },
+      "required": [
+        "transactionRef",
+        "itemId",
+        "itemTitle",
+        "listingType",
+        "amount",
+        "currency",
+        "paymentMethod",
+        "payerAccountRef",
+        "status",
+        "verifiedByBackend",
+        "verificationCode",
+        "failureReason",
+        "buyerId",
+        "buyerName",
+        "sellerId",
+        "sellerName",
+        "visibility",
+        "createdAt",
+        "updatedAt"
+      ]
     }
   },
   "firestore": {
     "/users/{userId}": {
       "schema": "UserProfile",
-      "description": "Private student profile storing confirmed phone numbers."
+      "description": "Private student profile storing name, branch, semester, and confirmed phone numbers."
+    },
+    "/publicProfiles/{userId}": {
+      "schema": "PublicProfile",
+      "description": "Campus-visible student profile storing non-private name, branch, and semester without phone numbers or emails."
     },
     "/admins/{adminId}": {
       "schema": "AdminUser",
@@ -353,7 +585,7 @@
     },
     "/campusItems/{itemId}": {
       "schema": "CampusItem",
-      "description": "Shared items visible to all signed-in users across devices."
+      "description": "Shared lending and permanent-sale items visible to all signed-in JDCOEM users across devices."
     },
     "/campusRequests/{requestId}": {
       "schema": "CampusRequest",
@@ -361,7 +593,11 @@
     },
     "/exchangeRatings/{ratingId}": {
       "schema": "ExchangeRating",
-      "description": "Public exchange ratings visible to all signed-in users without private contact details."
+      "description": "Public exchange ratings visible to all signed-in JDCOEM users without private contact details."
+    },
+    "/payments/{paymentId}": {
+      "schema": "CampusPayment",
+      "description": "Backend-verified payment transactions visible only to the associated buyer and seller."
     }
   }
 }
