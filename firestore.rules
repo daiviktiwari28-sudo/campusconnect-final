@@ -204,13 +204,8 @@ service cloud.firestore {
         && data.updatedAt is timestamp;
     }
 
-    function isPurchaseSellItemAction(itemId) {
-      return existing().listingType == 'sell'
-        && existing().status == 'Available'
-        && incoming().status == 'Sold'
-        && request.auth.uid != existing().authorId
-        && incoming().soldToId == request.auth.uid
-        && incoming().title == existing().title
+    function isImmutableCampusItemCoreUnchanged() {
+      return incoming().title == existing().title
         && incoming().description == existing().description
         && incoming().photoUrl == existing().photoUrl
         && incoming().category == existing().category
@@ -220,12 +215,48 @@ service cloud.firestore {
         && incoming().authorId == existing().authorId
         && incoming().authorName == existing().authorName
         && incoming().authorPhone == existing().authorPhone
-        && incoming().createdAt == existing().createdAt
+        && incoming().createdAt == existing().createdAt;
+    }
+
+    function isPurchaseSellItemAction(itemId) {
+      return existing().listingType == 'sell'
+        && existing().status == 'Available'
+        && incoming().status == 'Sold'
+        && request.auth.uid != existing().authorId
+        && incoming().soldToId == request.auth.uid
+        && isImmutableCampusItemCoreUnchanged()
         && incoming().updatedAt == request.time
         && isValidId(incoming().paymentId)
         && getAfter(/databases/$(database)/documents/payments/$(incoming().paymentId)).data.status == 'Successful'
         && getAfter(/databases/$(database)/documents/payments/$(incoming().paymentId)).data.itemId == itemId
         && getAfter(/databases/$(database)/documents/payments/$(incoming().paymentId)).data.buyerId == request.auth.uid
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'status',
+          'soldToId',
+          'soldToName',
+          'paymentId',
+          'updatedAt'
+        ]);
+    }
+
+    function isCompletePurchaseRequestItemAction(itemId) {
+      return existing().listingType == 'sell'
+        && existing().status == 'Available'
+        && incoming().status == 'Sold'
+        && isImmutableCampusItemCoreUnchanged()
+        && incoming().updatedAt == request.time
+        && isValidId(incoming().paymentId)
+        && getAfter(/databases/$(database)/documents/purchaseRequests/$(incoming().paymentId)).data.status == 'Completed'
+        && getAfter(/databases/$(database)/documents/purchaseRequests/$(incoming().paymentId)).data.borrowerConfirmed == true
+        && getAfter(/databases/$(database)/documents/purchaseRequests/$(incoming().paymentId)).data.lenderConfirmed == true
+        && getAfter(/databases/$(database)/documents/purchaseRequests/$(incoming().paymentId)).data.itemId == itemId
+        && getAfter(/databases/$(database)/documents/purchaseRequests/$(incoming().paymentId)).data.lenderId == existing().authorId
+        && getAfter(/databases/$(database)/documents/purchaseRequests/$(incoming().paymentId)).data.borrowerId == incoming().soldToId
+        && getAfter(/databases/$(database)/documents/purchaseRequests/$(incoming().paymentId)).data.borrowerName == incoming().soldToName
+        && (
+          request.auth.uid == getAfter(/databases/$(database)/documents/purchaseRequests/$(incoming().paymentId)).data.borrowerId
+          || request.auth.uid == getAfter(/databases/$(database)/documents/purchaseRequests/$(incoming().paymentId)).data.lenderId
+        )
         && incoming().diff(existing()).affectedKeys().hasOnly([
           'status',
           'soldToId',
@@ -353,6 +384,290 @@ service cloud.firestore {
         && incoming().sellerName == existing().sellerName
         && incoming().visibility == existing().visibility
         && incoming().createdAt == existing().createdAt;
+    }
+
+    function isValidPurchaseRequest(data) {
+      return data.keys().hasAll([
+          'itemId',
+          'itemTitle',
+          'itemPhotoUrl',
+          'listedPrice',
+          'finalAmount',
+          'borrowerId',
+          'borrowerName',
+          'borrowerPhone',
+          'borrowerRatingAverage',
+          'borrowerRatingCount',
+          'lenderId',
+          'lenderName',
+          'lenderPhone',
+          'status',
+          'borrowerConfirmed',
+          'borrowerConfirmedAt',
+          'lenderConfirmed',
+          'lenderConfirmedAt',
+          'completedAt',
+          'cancelledAt',
+          'cancelledById',
+          'cancelledByRole',
+          'visibility',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'itemId',
+          'itemTitle',
+          'itemPhotoUrl',
+          'listedPrice',
+          'finalAmount',
+          'borrowerId',
+          'borrowerName',
+          'borrowerPhone',
+          'borrowerRatingAverage',
+          'borrowerRatingCount',
+          'lenderId',
+          'lenderName',
+          'lenderPhone',
+          'status',
+          'borrowerConfirmed',
+          'borrowerConfirmedAt',
+          'lenderConfirmed',
+          'lenderConfirmedAt',
+          'completedAt',
+          'cancelledAt',
+          'cancelledById',
+          'cancelledByRole',
+          'visibility',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.itemId is string
+        && isValidId(data.itemId)
+        && data.itemTitle is string
+        && data.itemTitle.size() >= 2
+        && data.itemTitle.size() <= 100
+        && (data.itemPhotoUrl == null || (data.itemPhotoUrl is string && data.itemPhotoUrl.size() >= 1 && data.itemPhotoUrl.size() <= 250000))
+        && (data.listedPrice is int || data.listedPrice is float)
+        && data.listedPrice >= 1
+        && data.listedPrice <= 100000
+        && (data.finalAmount is int || data.finalAmount is float)
+        && data.finalAmount >= 1
+        && data.finalAmount <= 100000
+        && data.borrowerId is string
+        && isValidId(data.borrowerId)
+        && data.borrowerName is string
+        && data.borrowerName.size() >= 1
+        && data.borrowerName.size() <= 80
+        && data.borrowerPhone is string
+        && data.borrowerPhone.size() >= 7
+        && data.borrowerPhone.size() <= 25
+        && (data.borrowerRatingAverage is int || data.borrowerRatingAverage is float)
+        && data.borrowerRatingAverage >= 0
+        && data.borrowerRatingAverage <= 5
+        && data.borrowerRatingCount is int
+        && data.borrowerRatingCount >= 0
+        && data.borrowerRatingCount <= 100000
+        && data.lenderId is string
+        && isValidId(data.lenderId)
+        && data.lenderId != data.borrowerId
+        && data.lenderName is string
+        && data.lenderName.size() >= 1
+        && data.lenderName.size() <= 80
+        && data.lenderPhone is string
+        && data.lenderPhone.size() >= 7
+        && data.lenderPhone.size() <= 25
+        && data.status is string
+        && data.status.size() >= 7
+        && data.status.size() <= 20
+        && data.status in ['Pending', 'Completed', 'Cancelled']
+        && data.borrowerConfirmed is bool
+        && ((data.borrowerConfirmed == false && data.borrowerConfirmedAt == null) || (data.borrowerConfirmed == true && data.borrowerConfirmedAt is timestamp))
+        && data.lenderConfirmed is bool
+        && ((data.lenderConfirmed == false && data.lenderConfirmedAt == null) || (data.lenderConfirmed == true && data.lenderConfirmedAt is timestamp))
+        && (
+          (
+            data.status == 'Pending'
+            && !(data.borrowerConfirmed && data.lenderConfirmed)
+            && data.completedAt == null
+            && data.cancelledAt == null
+            && data.cancelledById == null
+            && data.cancelledByRole == null
+          )
+          || (
+            data.status == 'Completed'
+            && data.borrowerConfirmed == true
+            && data.lenderConfirmed == true
+            && data.completedAt is timestamp
+            && data.cancelledAt == null
+            && data.cancelledById == null
+            && data.cancelledByRole == null
+          )
+          || (
+            data.status == 'Cancelled'
+            && !(data.borrowerConfirmed && data.lenderConfirmed)
+            && data.completedAt == null
+            && data.cancelledAt is timestamp
+            && data.cancelledById is string
+            && isValidId(data.cancelledById)
+            && data.cancelledByRole is string
+            && data.cancelledByRole.size() >= 6
+            && data.cancelledByRole.size() <= 8
+            && data.cancelledByRole in ['borrower', 'lender']
+          )
+        )
+        && data.visibility is string
+        && data.visibility.size() == 7
+        && data.visibility == 'private'
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidSellItemForPurchaseRequest(data) {
+      return exists(/databases/$(database)/documents/campusItems/$(data.itemId))
+        && get(/databases/$(database)/documents/campusItems/$(data.itemId)).data.listingType == 'sell'
+        && get(/databases/$(database)/documents/campusItems/$(data.itemId)).data.status == 'Available'
+        && get(/databases/$(database)/documents/campusItems/$(data.itemId)).data.authorId == data.lenderId
+        && get(/databases/$(database)/documents/campusItems/$(data.itemId)).data.authorPhone == data.lenderPhone
+        && get(/databases/$(database)/documents/campusItems/$(data.itemId)).data.price == data.listedPrice;
+    }
+
+    function isImmutablePurchaseRequestCoreUnchanged() {
+      return incoming().itemId == existing().itemId
+        && incoming().itemTitle == existing().itemTitle
+        && incoming().itemPhotoUrl == existing().itemPhotoUrl
+        && incoming().listedPrice == existing().listedPrice
+        && incoming().borrowerId == existing().borrowerId
+        && incoming().borrowerName == existing().borrowerName
+        && incoming().borrowerPhone == existing().borrowerPhone
+        && incoming().borrowerRatingAverage == existing().borrowerRatingAverage
+        && incoming().borrowerRatingCount == existing().borrowerRatingCount
+        && incoming().lenderId == existing().lenderId
+        && incoming().lenderName == existing().lenderName
+        && incoming().lenderPhone == existing().lenderPhone
+        && incoming().visibility == existing().visibility
+        && incoming().createdAt == existing().createdAt;
+    }
+
+    function isBorrowerConfirmPurchaseAction(requestId) {
+      return request.auth.uid == existing().borrowerId
+        && existing().borrowerConfirmed == false
+        && incoming().borrowerConfirmed == true
+        && incoming().borrowerConfirmedAt == request.time
+        && incoming().lenderConfirmed == existing().lenderConfirmed
+        && incoming().lenderConfirmedAt == existing().lenderConfirmedAt
+        && incoming().cancelledAt == null
+        && incoming().cancelledById == null
+        && incoming().cancelledByRole == null
+        && (
+          (
+            existing().lenderConfirmed == false
+            && incoming().status == 'Pending'
+            && incoming().completedAt == null
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'borrowerConfirmed',
+              'borrowerConfirmedAt',
+              'finalAmount',
+              'updatedAt'
+            ])
+          )
+          || (
+            existing().lenderConfirmed == true
+            && incoming().status == 'Completed'
+            && incoming().completedAt == request.time
+            && incoming().finalAmount == existing().finalAmount
+            && getAfter(/databases/$(database)/documents/campusItems/$(existing().itemId)).data.status == 'Sold'
+            && getAfter(/databases/$(database)/documents/campusItems/$(existing().itemId)).data.paymentId == requestId
+            && !existsAfter(/databases/$(database)/documents/purchaseRequestLocks/$(existing().itemId + '_' + existing().borrowerId))
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'borrowerConfirmed',
+              'borrowerConfirmedAt',
+              'status',
+              'completedAt',
+              'updatedAt'
+            ])
+          )
+        );
+    }
+
+    function isLenderConfirmPurchaseAction(requestId) {
+      return request.auth.uid == existing().lenderId
+        && existing().lenderConfirmed == false
+        && incoming().lenderConfirmed == true
+        && incoming().lenderConfirmedAt == request.time
+        && incoming().borrowerConfirmed == existing().borrowerConfirmed
+        && incoming().borrowerConfirmedAt == existing().borrowerConfirmedAt
+        && incoming().cancelledAt == null
+        && incoming().cancelledById == null
+        && incoming().cancelledByRole == null
+        && (
+          (
+            existing().borrowerConfirmed == false
+            && incoming().status == 'Pending'
+            && incoming().completedAt == null
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'lenderConfirmed',
+              'lenderConfirmedAt',
+              'finalAmount',
+              'updatedAt'
+            ])
+          )
+          || (
+            existing().borrowerConfirmed == true
+            && incoming().status == 'Completed'
+            && incoming().completedAt == request.time
+            && incoming().finalAmount == existing().finalAmount
+            && getAfter(/databases/$(database)/documents/campusItems/$(existing().itemId)).data.status == 'Sold'
+            && getAfter(/databases/$(database)/documents/campusItems/$(existing().itemId)).data.paymentId == requestId
+            && !existsAfter(/databases/$(database)/documents/purchaseRequestLocks/$(existing().itemId + '_' + existing().borrowerId))
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'lenderConfirmed',
+              'lenderConfirmedAt',
+              'status',
+              'completedAt',
+              'updatedAt'
+            ])
+          )
+        );
+    }
+
+    function isCancelPurchaseRequestAction() {
+      return (
+          (request.auth.uid == existing().borrowerId && incoming().cancelledByRole == 'borrower')
+          || (request.auth.uid == existing().lenderId && incoming().cancelledByRole == 'lender')
+        )
+        && incoming().status == 'Cancelled'
+        && incoming().cancelledAt == request.time
+        && incoming().cancelledById == request.auth.uid
+        && incoming().completedAt == null
+        && incoming().borrowerConfirmed == existing().borrowerConfirmed
+        && incoming().borrowerConfirmedAt == existing().borrowerConfirmedAt
+        && incoming().lenderConfirmed == existing().lenderConfirmed
+        && incoming().lenderConfirmedAt == existing().lenderConfirmedAt
+        && incoming().finalAmount == existing().finalAmount
+        && !existsAfter(/databases/$(database)/documents/purchaseRequestLocks/$(existing().itemId + '_' + existing().borrowerId))
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'status',
+          'cancelledAt',
+          'cancelledById',
+          'cancelledByRole',
+          'updatedAt'
+        ]);
+    }
+
+    function isValidPurchaseRequestLock(data) {
+      return data.keys().hasAll(['requestId', 'itemId', 'borrowerId', 'lenderId', 'createdAt'])
+        && data.keys().hasOnly(['requestId', 'itemId', 'borrowerId', 'lenderId', 'createdAt'])
+        && data.requestId is string
+        && isValidId(data.requestId)
+        && data.itemId is string
+        && isValidId(data.itemId)
+        && data.borrowerId is string
+        && isValidId(data.borrowerId)
+        && data.borrowerId == request.auth.uid
+        && data.lenderId is string
+        && isValidId(data.lenderId)
+        && data.lenderId != data.borrowerId
+        && data.createdAt is timestamp;
     }
 
     function isValidCampusRequest(data) {
@@ -711,7 +1026,7 @@ service cloud.firestore {
       allow update: if isCampusEmail()
         && isValidId(itemId)
         && isValidCampusItem(incoming())
-        && isPurchaseSellItemAction(itemId);
+        && (isPurchaseSellItemAction(itemId) || isCompletePurchaseRequestItemAction(itemId));
       allow delete: if isCampusEmail()
         && isValidId(itemId)
         && resource != null
@@ -750,6 +1065,69 @@ service cloud.firestore {
           'updatedAt'
         ]);
       allow delete: if false;
+    }
+
+    match /purchaseRequests/{requestId} {
+      allow get: if isCampusEmail()
+        && isValidId(requestId)
+        && (existing().borrowerId == request.auth.uid || existing().lenderId == request.auth.uid);
+      allow list: if isCampusEmail()
+        && (existing().borrowerId == request.auth.uid || existing().lenderId == request.auth.uid);
+      allow create: if isCampusEmail()
+        && isValidId(requestId)
+        && isValidPurchaseRequest(incoming())
+        && incoming().borrowerId == request.auth.uid
+        && incoming().status == 'Pending'
+        && incoming().borrowerConfirmed == false
+        && incoming().borrowerConfirmedAt == null
+        && incoming().lenderConfirmed == false
+        && incoming().lenderConfirmedAt == null
+        && incoming().completedAt == null
+        && incoming().cancelledAt == null
+        && incoming().cancelledById == null
+        && incoming().cancelledByRole == null
+        && incoming().finalAmount == incoming().listedPrice
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && hasSavedPhone(request.auth.uid, incoming().borrowerPhone)
+        && isValidSellItemForPurchaseRequest(incoming())
+        && !exists(/databases/$(database)/documents/purchaseRequestLocks/$(incoming().itemId + '_' + request.auth.uid))
+        && existsAfter(/databases/$(database)/documents/purchaseRequestLocks/$(incoming().itemId + '_' + request.auth.uid))
+        && getAfter(/databases/$(database)/documents/purchaseRequestLocks/$(incoming().itemId + '_' + request.auth.uid)).data.requestId == requestId;
+      allow update: if isCampusEmail()
+        && isValidId(requestId)
+        && isValidPurchaseRequest(incoming())
+        && existing().status == 'Pending'
+        && incoming().updatedAt == request.time
+        && isImmutablePurchaseRequestCoreUnchanged()
+        && (
+          isBorrowerConfirmPurchaseAction(requestId)
+          || isLenderConfirmPurchaseAction(requestId)
+          || isCancelPurchaseRequestAction()
+        );
+      allow delete: if false;
+    }
+
+    match /purchaseRequestLocks/{lockId} {
+      allow get: if isCampusEmail()
+        && isValidId(lockId)
+        && (existing().borrowerId == request.auth.uid || existing().lenderId == request.auth.uid);
+      allow list: if false;
+      allow create: if isCampusEmail()
+        && isValidId(lockId)
+        && isValidPurchaseRequestLock(incoming())
+        && lockId == incoming().itemId + '_' + request.auth.uid
+        && incoming().createdAt == request.time
+        && existsAfter(/databases/$(database)/documents/purchaseRequests/$(incoming().requestId))
+        && getAfter(/databases/$(database)/documents/purchaseRequests/$(incoming().requestId)).data.itemId == incoming().itemId
+        && getAfter(/databases/$(database)/documents/purchaseRequests/$(incoming().requestId)).data.borrowerId == request.auth.uid
+        && getAfter(/databases/$(database)/documents/purchaseRequests/$(incoming().requestId)).data.lenderId == incoming().lenderId;
+      allow update: if false;
+      allow delete: if isCampusEmail()
+        && isValidId(lockId)
+        && resource != null
+        && (existing().borrowerId == request.auth.uid || existing().lenderId == request.auth.uid)
+        && getAfter(/databases/$(database)/documents/purchaseRequests/$(existing().requestId)).data.status in ['Completed', 'Cancelled'];
     }
 
     match /campusRequests/{requestId} {

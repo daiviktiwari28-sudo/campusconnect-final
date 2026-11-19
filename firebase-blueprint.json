@@ -578,6 +578,210 @@
         "createdAt",
         "updatedAt"
       ]
+    },
+    "PurchaseRequest": {
+      "title": "PurchaseRequest",
+      "description": "Private permanent-item purchase request between one borrower and one lender with two-party payment confirmation and timestamped lifecycle audit trail.",
+      "type": "object",
+      "properties": {
+        "itemId": {
+          "type": "string",
+          "description": "ID of the permanent-sale campusItem.",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "itemTitle": {
+          "type": "string",
+          "description": "Product name of the permanent-sale item.",
+          "minLength": 2,
+          "maxLength": 100
+        },
+        "itemPhotoUrl": {
+          "type": "string",
+          "description": "Optional thumbnail URL of the permanent-sale item, or null.",
+          "maxLength": 250000
+        },
+        "listedPrice": {
+          "type": "number",
+          "description": "Original listed price in INR."
+        },
+        "finalAmount": {
+          "type": "number",
+          "description": "Agreed final amount paid in INR (defaults to listedPrice and can reflect negotiation before confirmation)."
+        },
+        "borrowerId": {
+          "type": "string",
+          "description": "Firebase Auth UID of the borrower sending the purchase request.",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "borrowerName": {
+          "type": "string",
+          "description": "Display name of the borrower.",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "borrowerPhone": {
+          "type": "string",
+          "description": "Private phone number of the borrower visible only to the involved borrower and lender.",
+          "minLength": 7,
+          "maxLength": 25
+        },
+        "borrowerRatingAverage": {
+          "type": "number",
+          "description": "Borrower profile average star rating (0 to 5) at the time of request."
+        },
+        "borrowerRatingCount": {
+          "type": "integer",
+          "description": "Number of exchange ratings on the borrower profile at the time of request."
+        },
+        "lenderId": {
+          "type": "string",
+          "description": "Firebase Auth UID of the permanent-item lender/seller.",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "lenderName": {
+          "type": "string",
+          "description": "Display name of the lender/seller.",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "lenderPhone": {
+          "type": "string",
+          "description": "Private phone number of the lender visible only to the involved borrower and lender.",
+          "minLength": 7,
+          "maxLength": 25
+        },
+        "status": {
+          "type": "string",
+          "description": "Purchase request status; transitions to Completed only after both parties confirm.",
+          "enum": ["Pending", "Completed", "Cancelled"],
+          "minLength": 7,
+          "maxLength": 20
+        },
+        "borrowerConfirmed": {
+          "type": "boolean",
+          "description": "True once the borrower confirms Payment made."
+        },
+        "borrowerConfirmedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when the borrower confirmed Payment made, or null."
+        },
+        "lenderConfirmed": {
+          "type": "boolean",
+          "description": "True once the lender confirms Payment received."
+        },
+        "lenderConfirmedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when the lender confirmed Payment received, or null."
+        },
+        "completedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when both confirmations completed the purchase, or null."
+        },
+        "cancelledAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when either party cancelled the pending request, or null."
+        },
+        "cancelledById": {
+          "type": "string",
+          "description": "UID of the party who cancelled the request, or null.",
+          "maxLength": 128
+        },
+        "cancelledByRole": {
+          "type": "string",
+          "description": "Role of the party who cancelled the request, or null.",
+          "enum": ["borrower", "lender"],
+          "minLength": 6,
+          "maxLength": 8
+        },
+        "visibility": {
+          "type": "string",
+          "description": "Strictly private visibility restricting access to borrower and lender only.",
+          "enum": ["private"],
+          "minLength": 7,
+          "maxLength": 7
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when the purchase request was created."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when the purchase request was last updated."
+        }
+      },
+      "required": [
+        "itemId",
+        "itemTitle",
+        "itemPhotoUrl",
+        "listedPrice",
+        "finalAmount",
+        "borrowerId",
+        "borrowerName",
+        "borrowerPhone",
+        "borrowerRatingAverage",
+        "borrowerRatingCount",
+        "lenderId",
+        "lenderName",
+        "lenderPhone",
+        "status",
+        "borrowerConfirmed",
+        "borrowerConfirmedAt",
+        "lenderConfirmed",
+        "lenderConfirmedAt",
+        "completedAt",
+        "cancelledAt",
+        "cancelledById",
+        "cancelledByRole",
+        "visibility",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "PurchaseRequestLock": {
+      "title": "PurchaseRequestLock",
+      "description": "Atomic duplicate-prevention lock keyed by itemId_borrowerId while a purchase request is Pending.",
+      "type": "object",
+      "properties": {
+        "requestId": {
+          "type": "string",
+          "description": "Linked PurchaseRequest document ID.",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "itemId": {
+          "type": "string",
+          "description": "ID of the permanent-sale campusItem.",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "borrowerId": {
+          "type": "string",
+          "description": "Firebase Auth UID of the borrower.",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "lenderId": {
+          "type": "string",
+          "description": "Firebase Auth UID of the lender.",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when the lock was created."
+        }
+      },
+      "required": ["requestId", "itemId", "borrowerId", "lenderId", "createdAt"]
     }
   },
   "firestore": {
@@ -608,6 +812,14 @@
     "/payments/{paymentId}": {
       "schema": "CampusPayment",
       "description": "Backend-verified payment transactions visible only to the associated buyer and seller."
+    },
+    "/purchaseRequests/{requestId}": {
+      "schema": "PurchaseRequest",
+      "description": "Private permanent-item purchase requests visible and editable strictly by the involved borrower and lender."
+    },
+    "/purchaseRequestLocks/{lockId}": {
+      "schema": "PurchaseRequestLock",
+      "description": "Atomic duplicate-prevention lock documents keyed by itemId_borrowerId for active pending purchase requests."
     }
   }
 }

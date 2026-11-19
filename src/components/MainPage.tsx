@@ -29,6 +29,7 @@ import {
   formatInr,
   type CampusItem,
   type CampusRequest,
+  type CompletedTransactionItem,
   type ExchangeRating,
   type ListingType,
 } from '../data/campusItems';
@@ -37,6 +38,7 @@ import { useAdmins } from '../hooks/useAdmins';
 import { useCampusItems } from '../hooks/useCampusItems';
 import { usePayments } from '../hooks/usePayments';
 import { usePublicProfiles } from '../hooks/usePublicProfiles';
+import { usePurchaseRequests } from '../hooks/usePurchaseRequests';
 import {
   buildExchangeSummary,
   formatRemainingEditWindow,
@@ -55,11 +57,12 @@ import { AddItemModal } from './AddItemModal';
 import { AdminDashboardPanel } from './AdminDashboardPanel';
 import { DeleteConfirmModal, type DeleteTarget } from './DeleteConfirmModal';
 import { NewRequestModal } from './NewRequestModal';
-import { PaymentModal } from './PaymentModal';
 import {
   ProfileReviewsPanel,
   type ProfileReviewCandidate,
 } from './ProfileReviewsPanel';
+import { PurchaseRequestModal } from './PurchaseRequestModal';
+import { PurchaseRequestsPanel } from './PurchaseRequestsPanel';
 import { RateExchangeModal, type RateModalTarget } from './RateExchangeModal';
 import { StarRatingDisplay } from './StarRatingDisplay';
 import { StudentProfileModal } from './StudentProfileModal';
@@ -86,6 +89,7 @@ type ActiveView =
   | 'items'
   | 'shared-requests'
   | 'my-requests'
+  | 'purchase-requests'
   | 'profile-reviews'
   | 'transactions'
   | 'admin';
@@ -291,26 +295,75 @@ export function MainPage({
 
   const { publicProfiles, publicProfilesById } = usePublicProfiles(user);
 
+  const hasPhone = Boolean(userPhone && userPhone.trim().length >= 7);
+  const displayName =
+    studentProfile?.displayName?.trim() || user.displayName?.trim() || user.email || 'Campus Student';
+
   const {
     payments,
-    paymentMethods,
     paymentsLoading,
-    processingPayment,
     paymentsError,
     paymentStatusMessage,
-    initiatePayment,
-    verifyPayment,
     clearPaymentsError,
     clearPaymentStatusMessage,
   } = usePayments(user);
 
-  const hasPhone = Boolean(userPhone && userPhone.trim().length >= 7);
-  const displayName =
-    studentProfile?.displayName?.trim() || user.displayName?.trim() || user.email || 'Campus Student';
-  const defaultPayerRef = useMemo(() => {
-    const emailLocal = user.email?.split('@')[0]?.replace(/[^a-zA-Z0-9._-]/g, '');
-    return emailLocal ? `${emailLocal}@upi` : userPhone || 'student@upi';
-  }, [user.email, userPhone]);
+  const {
+    purchaseRequests,
+    pendingPurchaseRequests,
+    completedPurchaseRequests,
+    purchaseRequestsLoading,
+    submittingPurchaseRequest,
+    updatingPurchaseId,
+    purchaseError,
+    purchaseStatusMessage,
+    incomingPurchaseAlert,
+    createPurchaseRequest,
+    confirmPurchasePayment,
+    cancelPurchaseRequest,
+    clearPurchaseError,
+    clearPurchaseStatusMessage,
+    dismissIncomingPurchaseAlert,
+  } = usePurchaseRequests(user, displayName, userPhone);
+
+  const completedTransactions = useMemo<CompletedTransactionItem[]>(() => {
+    const items: CompletedTransactionItem[] = [];
+    const seenIds = new Set<string>();
+
+    for (const req of completedPurchaseRequests) {
+      const isBorrower = req.borrowerId === user.uid;
+      seenIds.add(req.id);
+      items.push({
+        id: req.id,
+        itemTitle: req.itemTitle,
+        counterpartyName: isBorrower
+          ? publicProfilesById[req.lenderId]?.displayName || req.lenderName
+          : publicProfilesById[req.borrowerId]?.displayName || req.borrowerName,
+        role: isBorrower ? 'buyer' : 'seller',
+        finalAmount: req.finalAmount,
+        completedAtMs: req.completedAtMs ?? req.updatedAtMs,
+      });
+    }
+
+    for (const payment of payments) {
+      if (payment.status !== 'Successful' || seenIds.has(payment.id)) continue;
+      const isBuyer = payment.buyerId === user.uid;
+      items.push({
+        id: payment.id,
+        itemTitle: payment.itemTitle,
+        counterpartyName: isBuyer
+          ? publicProfilesById[payment.sellerId]?.displayName || payment.sellerName
+          : publicProfilesById[payment.buyerId]?.displayName || payment.buyerName,
+        role: isBuyer ? 'buyer' : 'seller',
+        finalAmount: payment.amount,
+        completedAtMs: payment.updatedAtMs,
+      });
+    }
+
+    items.sort((a, b) => b.completedAtMs - a.completedAtMs);
+    return items;
+  }, [completedPurchaseRequests, payments, publicProfilesById, user.uid]);
+
   const myAcademicMeta = formatBranchSemester(studentProfile?.branch, studentProfile?.semester);
   const initials = getInitials(displayName, user.email);
   const showAvatarImage = Boolean(user.photoURL && !avatarFailed);
@@ -440,6 +493,14 @@ export function MainPage({
       setPendingGateAction({ type: 'buy', item });
       return;
     }
+    const existingPending = pendingPurchaseRequests.find(
+      (req) => req.itemId === item.id && req.borrowerId === user.uid
+    );
+    if (existingPending) {
+      handleSelectView('purchase-requests');
+      return;
+    }
+    clearPurchaseError();
     clearPaymentsError();
     setBuyItemTarget(item);
   }
@@ -479,8 +540,16 @@ export function MainPage({
       } else if (nextAction?.type === 'accept') {
         await acceptRequest(nextAction.request);
       } else if (nextAction?.type === 'buy') {
-        clearPaymentsError();
-        setBuyItemTarget(nextAction.item);
+        const existingPending = pendingPurchaseRequests.find(
+          (req) => req.itemId === nextAction.item.id && req.borrowerId === user.uid
+        );
+        if (existingPending) {
+          handleSelectView('purchase-requests');
+        } else {
+          clearPurchaseError();
+          clearPaymentsError();
+          setBuyItemTarget(nextAction.item);
+        }
       }
     }
     return saved;
@@ -928,13 +997,18 @@ export function MainPage({
       title: 'My Requests',
       subtitle: 'Track requests you created across Open, Accepted, and two-party Fulfilled stages.',
     },
+    'purchase-requests': {
+      title: 'Purchase Requests',
+      subtitle:
+        'Private permanent-item purchase requests — contact each other directly and confirm once payment is settled.',
+    },
     'profile-reviews': {
       title: 'Profile Reviews',
       subtitle: 'Public student profiles and verified exchange ratings across JDCOEM.',
     },
     transactions: {
       title: 'Transactions',
-      subtitle: 'Backend-verified purchase and sale receipts across Campus UPI and Direct Pay.',
+      subtitle: 'Completed permanent-item purchases and sales.',
     },
     admin: {
       title: 'Admin Dashboard',
@@ -967,13 +1041,24 @@ export function MainPage({
           icon: Inbox,
         },
         { id: 'my-requests', label: 'My Requests', count: myRequests.length, icon: HandHelping },
+        {
+          id: 'purchase-requests',
+          label: 'Purchase Requests',
+          count: pendingPurchaseRequests.length,
+          icon: ShoppingBag,
+        },
       ],
     },
     {
       label: 'Account & Trust',
       items: [
         { id: 'profile-reviews', label: 'Profile Reviews', count: ratings.length, icon: Star },
-        { id: 'transactions', label: 'Transactions', count: payments.length, icon: Receipt },
+        {
+          id: 'transactions',
+          label: 'Transactions',
+          count: completedTransactions.length,
+          icon: Receipt,
+        },
       ],
     },
     ...(isAdmin
@@ -1350,7 +1435,51 @@ export function MainPage({
             </div>
           )}
 
-          {(statusMessage || ratingStatusMessage || paymentStatusMessage) && (
+          {incomingPurchaseAlert && (
+            <div
+              role="status"
+              className="mb-6 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-950 flex flex-wrap items-center justify-between gap-3"
+            >
+              <div className="flex items-start gap-3 min-w-0 flex-1">
+                <ShoppingBag
+                  className="w-5 h-5 text-emerald-700 shrink-0 mt-0.5"
+                  aria-hidden="true"
+                />
+                <p className="min-w-0 leading-relaxed">
+                  <span className="font-semibold">
+                    New purchase request from {incomingPurchaseAlert.borrowerName}:
+                  </span>{' '}
+                  “{incomingPurchaseAlert.itemTitle}” ({formatInr(incomingPurchaseAlert.listedPrice)}
+                  )
+                </p>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleSelectView('purchase-requests');
+                    dismissIncomingPurchaseAlert();
+                  }}
+                  className="min-h-[34px] px-3 py-1.5 rounded-lg bg-emerald-700 text-white text-xs font-medium hover:bg-emerald-800 transition-colors cursor-pointer"
+                >
+                  View Purchase Requests
+                </button>
+                <button
+                  type="button"
+                  onClick={dismissIncomingPurchaseAlert}
+                  aria-label="Dismiss purchase request alert"
+                  className="p-1 rounded-md text-emerald-800 hover:bg-emerald-100 transition-colors cursor-pointer"
+                >
+                  <X className="w-4 h-4" aria-hidden="true" />
+                </button>
+              </div>
+            </div>
+          )}
+
+          {(statusMessage ||
+            ratingStatusMessage ||
+            purchaseStatusMessage ||
+            paymentStatusMessage) && (
             <div
               role="status"
               className="mb-6 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-950 flex items-start gap-3"
@@ -1360,13 +1489,17 @@ export function MainPage({
                 aria-hidden="true"
               />
               <p className="flex-1 min-w-0 leading-relaxed">
-                {paymentStatusMessage || ratingStatusMessage || statusMessage}
+                {purchaseStatusMessage ||
+                  paymentStatusMessage ||
+                  ratingStatusMessage ||
+                  statusMessage}
               </p>
               <button
                 type="button"
                 onClick={() => {
                   clearStatusMessage();
                   clearRatingStatusMessage();
+                  clearPurchaseStatusMessage();
                   clearPaymentStatusMessage();
                 }}
                 aria-label="Dismiss confirmation"
@@ -1377,20 +1510,21 @@ export function MainPage({
             </div>
           )}
 
-          {(itemsError || ratingsError || paymentsError) && (
+          {(itemsError || ratingsError || purchaseError || paymentsError) && (
             <div
               role="alert"
               className="mb-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-950 flex items-start gap-3"
             >
               <AlertCircle className="w-5 h-5 text-red-700 shrink-0 mt-0.5" aria-hidden="true" />
               <p className="flex-1 min-w-0 leading-relaxed">
-                {paymentsError || ratingsError || itemsError}
+                {purchaseError || paymentsError || ratingsError || itemsError}
               </p>
               <button
                 type="button"
                 onClick={() => {
                   clearItemsError();
                   clearRatingsError();
+                  clearPurchaseError();
                   clearPaymentsError();
                 }}
                 aria-label="Dismiss error"
@@ -1619,13 +1753,15 @@ export function MainPage({
                 placeholder={
                   activeView === 'items'
                     ? 'Search items by name, lend/sale, price, student, or branch...'
-                    : activeView === 'profile-reviews'
-                      ? 'Search reviews by comment, author, or exchange...'
-                      : activeView === 'transactions'
-                        ? 'Search transactions by item, reference ID, status, or method...'
-                        : activeView === 'admin'
-                          ? 'Filter items or requests by title, student name, or UID...'
-                          : 'Search requests by description, student, or status...'
+                    : activeView === 'purchase-requests'
+                      ? 'Search purchase requests by item, student, or status...'
+                      : activeView === 'profile-reviews'
+                        ? 'Search reviews by comment, author, or exchange...'
+                        : activeView === 'transactions'
+                          ? 'Search completed transactions by item, student, or amount...'
+                          : activeView === 'admin'
+                            ? 'Filter items or requests by title, student name, or UID...'
+                            : 'Search requests by description, student, or status...'
                 }
                 className="w-full min-h-[42px] pl-10 pr-20 py-2 rounded-xl border border-slate-300 bg-white text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-700 focus:border-blue-700"
               />
@@ -1715,12 +1851,24 @@ export function MainPage({
                 }}
                 onClearSearch={handleClearSearch}
               />
-            ) : activeView === 'transactions' ? (
-              <TransactionsPanel
-                payments={payments}
+            ) : activeView === 'purchase-requests' ? (
+              <PurchaseRequestsPanel
+                requests={purchaseRequests}
                 currentUserId={user.uid}
                 searchQuery={searchQuery}
-                loading={paymentsLoading}
+                loading={purchaseRequestsLoading}
+                updatingId={updatingPurchaseId}
+                isBackendConfigured={isBackendConfigured}
+                onConfirmPayment={confirmPurchasePayment}
+                onCancelRequest={cancelPurchaseRequest}
+                onOpenProfileRatings={handleOpenProfileRatings}
+                onClearSearch={handleClearSearch}
+              />
+            ) : activeView === 'transactions' ? (
+              <TransactionsPanel
+                transactions={completedTransactions}
+                searchQuery={searchQuery}
+                loading={purchaseRequestsLoading || paymentsLoading}
                 onClearSearch={handleClearSearch}
               />
             ) : loading ? (
@@ -1841,6 +1989,18 @@ export function MainPage({
                           !getRatingForRequestByUser(req.id, user.uid)
                       )
                     : undefined;
+                  const myPendingPurchaseAsBorrower =
+                    isPermanentSale && !isOwner
+                      ? pendingPurchaseRequests.find(
+                          (req) => req.itemId === item.id && req.borrowerId === user.uid
+                        )
+                      : undefined;
+                  const pendingPurchasesAsLender =
+                    isPermanentSale && isOwner
+                      ? pendingPurchaseRequests.filter(
+                          (req) => req.itemId === item.id && req.lenderId === user.uid
+                        )
+                      : [];
 
                   return (
                     <article
@@ -1896,6 +2056,210 @@ export function MainPage({
                                 ? 'You'
                                 : item.soldToName || 'a fellow student'}
                             </p>
+                          )}
+
+                          {myPendingPurchaseAsBorrower && (
+                            <div className="mt-4 pt-4 border-t border-slate-100 space-y-2.5 text-xs">
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="font-semibold text-amber-700 inline-flex items-center gap-1">
+                                  <Clock className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                                  <span>Purchase request · Pending</span>
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleSelectView('purchase-requests')}
+                                  className="text-blue-700 font-medium hover:underline cursor-pointer shrink-0"
+                                >
+                                  Details
+                                </button>
+                              </div>
+
+                              <div className="flex flex-wrap items-center gap-x-3.5 gap-y-1">
+                                <span
+                                  className={`inline-flex items-center gap-1 ${
+                                    myPendingPurchaseAsBorrower.borrowerConfirmed
+                                      ? 'text-emerald-700 font-medium'
+                                      : 'text-slate-500'
+                                  }`}
+                                >
+                                  {myPendingPurchaseAsBorrower.borrowerConfirmed ? (
+                                    <CheckCircle2 className="w-3.5 h-3.5" aria-hidden="true" />
+                                  ) : (
+                                    <Clock className="w-3.5 h-3.5" aria-hidden="true" />
+                                  )}
+                                  <span>Payment made</span>
+                                </span>
+                                <span
+                                  className={`inline-flex items-center gap-1 ${
+                                    myPendingPurchaseAsBorrower.lenderConfirmed
+                                      ? 'text-emerald-700 font-medium'
+                                      : 'text-slate-500'
+                                  }`}
+                                >
+                                  {myPendingPurchaseAsBorrower.lenderConfirmed ? (
+                                    <CheckCircle2 className="w-3.5 h-3.5" aria-hidden="true" />
+                                  ) : (
+                                    <Clock className="w-3.5 h-3.5" aria-hidden="true" />
+                                  )}
+                                  <span>Payment received</span>
+                                </span>
+                              </div>
+
+                              <div className="flex flex-wrap items-center gap-2 pt-0.5">
+                                {!myPendingPurchaseAsBorrower.borrowerConfirmed ? (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      void confirmPurchasePayment(myPendingPurchaseAsBorrower)
+                                    }
+                                    disabled={
+                                      updatingPurchaseId === myPendingPurchaseAsBorrower.id ||
+                                      !isBackendConfigured
+                                    }
+                                    className="flex-1 min-h-[34px] px-3 py-1.5 rounded-xl bg-emerald-700 text-white text-xs font-medium hover:bg-emerald-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-700 transition-colors inline-flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
+                                  >
+                                    {updatingPurchaseId === myPendingPurchaseAsBorrower.id ? (
+                                      <>
+                                        <Loader2
+                                          className="w-3.5 h-3.5 animate-spin"
+                                          aria-hidden="true"
+                                        />
+                                        <span>Updating...</span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <CheckCircle2 className="w-3.5 h-3.5" aria-hidden="true" />
+                                        <span>Payment made</span>
+                                      </>
+                                    )}
+                                  </button>
+                                ) : (
+                                  <p className="text-emerald-700 font-medium flex-1">
+                                    Confirmed · Waiting for lender.
+                                  </p>
+                                )}
+
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    void cancelPurchaseRequest(myPendingPurchaseAsBorrower)
+                                  }
+                                  disabled={
+                                    updatingPurchaseId === myPendingPurchaseAsBorrower.id ||
+                                    !isBackendConfigured
+                                  }
+                                  className="min-h-[34px] px-3 py-1.5 rounded-xl border border-slate-300 bg-white text-xs font-medium text-slate-700 hover:border-red-200 hover:bg-red-50 hover:text-red-700 transition-colors cursor-pointer disabled:opacity-50"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            </div>
+                          )}
+
+                          {pendingPurchasesAsLender.length > 0 && (
+                            <div className="mt-4 pt-4 border-t border-slate-100 space-y-3 text-xs">
+                              {pendingPurchasesAsLender.map((purchaseReq, index) => {
+                                const isUpdatingThis = updatingPurchaseId === purchaseReq.id;
+                                const ratingLabel =
+                                  purchaseReq.borrowerRatingCount > 0
+                                    ? `${purchaseReq.borrowerRatingAverage.toFixed(1)} (${purchaseReq.borrowerRatingCount})`
+                                    : 'No ratings';
+
+                                return (
+                                  <div
+                                    key={purchaseReq.id}
+                                    className={`space-y-2 ${
+                                      index > 0 ? 'pt-3 border-t border-slate-100' : ''
+                                    }`}
+                                  >
+                                    <div className="flex items-center justify-between gap-2">
+                                      <span className="font-semibold text-slate-900 truncate">
+                                        Buyer request: {purchaseReq.borrowerName}
+                                      </span>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleSelectView('purchase-requests')}
+                                        className="text-blue-700 font-medium hover:underline cursor-pointer shrink-0"
+                                      >
+                                        Details
+                                      </button>
+                                    </div>
+
+                                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-slate-600">
+                                      <a
+                                        href={`tel:${purchaseReq.borrowerPhone.replace(/[^+\d]/g, '')}`}
+                                        className="inline-flex items-center gap-1 text-blue-700 font-medium hover:underline tabular-nums"
+                                      >
+                                        <Phone className="w-3 h-3 shrink-0" aria-hidden="true" />
+                                        <span>{purchaseReq.borrowerPhone}</span>
+                                      </a>
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          handleOpenProfileRatings(
+                                            purchaseReq.borrowerId,
+                                            purchaseReq.borrowerName
+                                          )
+                                        }
+                                        className="inline-flex items-center gap-1 hover:text-blue-700 hover:underline tabular-nums cursor-pointer"
+                                      >
+                                        <Star
+                                          className={`w-3 h-3 shrink-0 ${
+                                            purchaseReq.borrowerRatingCount > 0
+                                              ? 'fill-amber-400 text-amber-500'
+                                              : 'text-slate-300'
+                                          }`}
+                                          aria-hidden="true"
+                                        />
+                                        <span>{ratingLabel}</span>
+                                      </button>
+                                    </div>
+
+                                    <div className="flex flex-wrap items-center gap-2 pt-0.5">
+                                      {!purchaseReq.lenderConfirmed ? (
+                                        <button
+                                          type="button"
+                                          onClick={() => void confirmPurchasePayment(purchaseReq)}
+                                          disabled={isUpdatingThis || !isBackendConfigured}
+                                          className="flex-1 min-h-[34px] px-3 py-1.5 rounded-xl bg-emerald-700 text-white text-xs font-medium hover:bg-emerald-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-700 transition-colors inline-flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
+                                        >
+                                          {isUpdatingThis ? (
+                                            <>
+                                              <Loader2
+                                                className="w-3.5 h-3.5 animate-spin"
+                                                aria-hidden="true"
+                                              />
+                                              <span>Updating...</span>
+                                            </>
+                                          ) : (
+                                            <>
+                                              <CheckCircle2
+                                                className="w-3.5 h-3.5"
+                                                aria-hidden="true"
+                                              />
+                                              <span>Payment received</span>
+                                            </>
+                                          )}
+                                        </button>
+                                      ) : (
+                                        <p className="text-emerald-700 font-medium flex-1">
+                                          Confirmed · Waiting for buyer.
+                                        </p>
+                                      )}
+
+                                      <button
+                                        type="button"
+                                        onClick={() => void cancelPurchaseRequest(purchaseReq)}
+                                        disabled={isUpdatingThis || !isBackendConfigured}
+                                        className="min-h-[34px] px-3 py-1.5 rounded-xl border border-slate-300 bg-white text-xs font-medium text-slate-700 hover:border-red-200 hover:bg-red-50 hover:text-red-700 transition-colors cursor-pointer disabled:opacity-50"
+                                      >
+                                        Cancel
+                                      </button>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
                           )}
 
                           {myLinkedAcceptedExchanges.length > 0 && (
@@ -2057,7 +2421,7 @@ export function MainPage({
                         </div>
 
                         <div className="flex items-center gap-2 shrink-0">
-                          {!isOwner && isPermanentSale && !isSold && (
+                          {!isOwner && isPermanentSale && !isSold && !myPendingPurchaseAsBorrower && (
                             <button
                               type="button"
                               onClick={() => handleOpenBuyItem(item)}
@@ -2066,6 +2430,16 @@ export function MainPage({
                             >
                               <ShoppingBag className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
                               <span>Buy · {formatInr(item.price)}</span>
+                            </button>
+                          )}
+                          {!isOwner && isPermanentSale && !isSold && myPendingPurchaseAsBorrower && (
+                            <button
+                              type="button"
+                              onClick={() => handleSelectView('purchase-requests')}
+                              className="min-h-[38px] px-3.5 py-1.5 rounded-xl border border-amber-200 bg-amber-50 text-amber-800 text-xs font-medium hover:bg-amber-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-600 transition-colors inline-flex items-center gap-1.5 cursor-pointer"
+                            >
+                              <Clock className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                              <span>Pending</span>
                             </button>
                           )}
                           {!isOwner && !isPermanentSale && (
@@ -2154,19 +2528,26 @@ export function MainPage({
         onSubmit={handleRateSubmit}
       />
 
-      <PaymentModal
+      <PurchaseRequestModal
         item={buyItemTarget}
         sellerDisplayName={
           buyItemTarget
             ? publicProfilesById[buyItemTarget.authorId]?.displayName || buyItemTarget.authorName
             : ''
         }
-        defaultPayerRef={defaultPayerRef}
-        paymentMethods={paymentMethods}
-        processing={processingPayment}
+        borrowerName={displayName}
+        borrowerPhone={userPhone || ''}
+        borrowerRatingAverage={ratingSummaryByUserId[user.uid]?.averageScore ?? 0}
+        borrowerRatingCount={ratingSummaryByUserId[user.uid]?.count ?? 0}
+        submitting={submittingPurchaseRequest}
         onClose={() => setBuyItemTarget(null)}
-        onInitiatePayment={initiatePayment}
-        onVerifyPayment={verifyPayment}
+        onConfirmSend={(targetItem) =>
+          createPurchaseRequest(
+            targetItem,
+            ratingSummaryByUserId[user.uid]?.averageScore ?? 0,
+            ratingSummaryByUserId[user.uid]?.count ?? 0
+          )
+        }
       />
     </div>
   );

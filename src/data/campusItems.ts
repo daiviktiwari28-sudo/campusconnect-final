@@ -13,6 +13,8 @@ export type RequestStatus = 'Open' | 'Accepted' | 'Fulfilled';
 export type RatingRole = 'borrower' | 'lender';
 export type PaymentStatus = 'Pending' | 'Successful' | 'Failed';
 export type PaymentMethodId = 'Campus UPI' | 'Campus Direct Pay';
+export type PurchaseRequestStatus = 'Pending' | 'Completed' | 'Cancelled';
+export type PurchaseParticipantRole = 'borrower' | 'lender';
 
 export interface CampusItem {
   id: string;
@@ -53,6 +55,43 @@ export interface CampusPayment {
   sellerName: string;
   createdAtMs: number;
   updatedAtMs: number;
+}
+
+export interface PurchaseRequest {
+  id: string;
+  itemId: string;
+  itemTitle: string;
+  itemPhotoUrl: string | null;
+  listedPrice: number;
+  finalAmount: number;
+  borrowerId: string;
+  borrowerName: string;
+  borrowerPhone: string;
+  borrowerRatingAverage: number;
+  borrowerRatingCount: number;
+  lenderId: string;
+  lenderName: string;
+  lenderPhone: string;
+  status: PurchaseRequestStatus;
+  borrowerConfirmed: boolean;
+  borrowerConfirmedAtMs: number | null;
+  lenderConfirmed: boolean;
+  lenderConfirmedAtMs: number | null;
+  completedAtMs: number | null;
+  cancelledAtMs: number | null;
+  cancelledById: string | null;
+  cancelledByRole: PurchaseParticipantRole | null;
+  createdAtMs: number;
+  updatedAtMs: number;
+}
+
+export interface CompletedTransactionItem {
+  id: string;
+  itemTitle: string;
+  counterpartyName: string;
+  role: 'buyer' | 'seller';
+  finalAmount: number;
+  completedAtMs: number;
 }
 
 export interface CampusRequest {
