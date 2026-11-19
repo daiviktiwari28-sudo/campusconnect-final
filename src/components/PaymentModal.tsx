@@ -150,7 +150,7 @@ export function PaymentModal({
             onClick={onClose}
             disabled={processing}
             aria-label="Close payment dialog"
-            className="p-2 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition-colors cursor-pointer disabled:opacity-50"
+            className="p-2 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 transition-colors cursor-pointer disabled:opacity-50"
           >
             <X className="w-5 h-5" aria-hidden="true" />
           </button>
@@ -171,7 +171,7 @@ export function PaymentModal({
             <p className="text-xs text-slate-600 mt-0.5 truncate">Seller: {sellerDisplayName}</p>
           </div>
           <div className="text-right shrink-0">
-            <p className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
+            <p className="text-xs font-medium text-slate-500">
               Amount
             </p>
             <p className="font-display text-lg font-bold text-slate-900 tabular-nums">
@@ -251,7 +251,7 @@ export function PaymentModal({
                 <button
                   type="button"
                   onClick={handleRetryNewPayment}
-                  className="min-h-[44px] px-4 py-2 rounded-xl border border-slate-300 bg-white text-sm font-medium text-slate-800 hover:bg-slate-50 cursor-pointer"
+                  className="min-h-[44px] px-4 py-2 rounded-xl border border-slate-300 bg-white text-sm font-medium text-slate-800 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 cursor-pointer"
                 >
                   Try new payment
                 </button>
@@ -259,7 +259,7 @@ export function PaymentModal({
               <button
                 type="button"
                 onClick={onClose}
-                className="min-h-[44px] px-5 py-2 rounded-xl bg-blue-700 text-white text-sm font-medium hover:bg-blue-800 cursor-pointer"
+                className="min-h-[44px] px-5 py-2 rounded-xl bg-blue-700 text-white text-sm font-medium hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 focus-visible:ring-offset-2 cursor-pointer"
               >
                 Done
               </button>
@@ -419,14 +419,14 @@ export function PaymentModal({
                 type="button"
                 onClick={onClose}
                 disabled={processing}
-                className="min-h-[44px] px-4 py-2 rounded-xl border border-slate-300 bg-white text-sm font-medium text-slate-700 hover:bg-slate-50 cursor-pointer disabled:opacity-50"
+                className="min-h-[44px] px-4 py-2 rounded-xl border border-slate-300 bg-white text-sm font-medium text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 cursor-pointer disabled:opacity-50"
               >
                 Cancel
               </button>
               <button
                 type="submit"
                 disabled={processing}
-                className="min-h-[44px] px-5 py-2 rounded-xl bg-blue-700 text-white text-sm font-medium hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 transition-colors inline-flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
+                className="min-h-[44px] px-5 py-2 rounded-xl bg-blue-700 text-white text-sm font-medium hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 focus-visible:ring-offset-2 transition-colors inline-flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
               >
                 {processing ? (
                   <>

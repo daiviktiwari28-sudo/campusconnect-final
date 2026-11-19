@@ -66,28 +66,50 @@ export function SignInPage({
 
           {/* Sign-In Content Column */}
           <div className="lg:col-span-6 lg:order-1 flex flex-col justify-center">
-            <div className="w-full max-w-lg mx-auto lg:mx-0 bg-white border border-slate-200 rounded-2xl p-6 sm:p-10 shadow-sm">
+            <div className="w-full max-w-lg mx-auto lg:mx-0 bg-white border border-slate-200 rounded-2xl p-7 sm:p-10">
               {/* Brand Wordmark */}
               <div className="flex items-center gap-2.5 text-slate-900">
                 <div className="w-9 h-9 rounded-lg bg-blue-700 text-white flex items-center justify-center shrink-0">
                   <GraduationCap className="w-5 h-5" aria-hidden="true" />
                 </div>
-                <span className="font-display text-xl font-bold tracking-tight">
+                <span className="font-display text-xl font-bold tracking-tight whitespace-nowrap">
                   CampusConnect
                 </span>
               </div>
 
-              <div className="mt-8">
-                <h1 className="font-display text-[clamp(2rem,3.6vw,2.85rem)] font-bold leading-[1.12] tracking-tight text-slate-900 text-balance">
+              <div className="mt-7">
+                <h1 className="font-display text-[clamp(1.9rem,3.4vw,2.65rem)] font-bold leading-[1.12] tracking-tight text-slate-900 text-balance">
                   Your campus, your community.
                 </h1>
-                <p className="mt-4 text-base sm:text-[17px] leading-relaxed text-slate-600">
+                <p className="mt-3.5 text-sm sm:text-[15px] leading-relaxed text-slate-600">
                   Sign in with your college Google account ending with{' '}
                   <span className="font-medium text-slate-900">@jdcoem.ac.in</span> or{' '}
                   <span className="font-medium text-slate-900">.jdcoem.in</span> to share spare
                   items, borrow essentials, and connect with classmates.
                 </p>
               </div>
+
+              {/* First-time orientation overview */}
+              <dl className="mt-6 pt-5 border-t border-slate-100 space-y-3 text-sm">
+                <div className="flex items-baseline gap-2.5">
+                  <dt className="font-semibold text-slate-900 shrink-0">Lend &amp; Borrow</dt>
+                  <dd className="text-slate-600">
+                    Share spare chargers, calculators, or lab gear and post campus requests.
+                  </dd>
+                </div>
+                <div className="flex items-baseline gap-2.5">
+                  <dt className="font-semibold text-slate-900 shrink-0">Permanent Sale</dt>
+                  <dd className="text-slate-600">
+                    List items at a fixed price and pay with backend-verified campus receipts.
+                  </dd>
+                </div>
+                <div className="flex items-baseline gap-2.5">
+                  <dt className="font-semibold text-slate-900 shrink-0">Verified Trust</dt>
+                  <dd className="text-slate-600">
+                    Both students confirm fulfillment before unlocking public exchange ratings.
+                  </dd>
+                </div>
+              </dl>
 
               {!isConfigured && (
                 <div
@@ -139,7 +161,7 @@ export function SignInPage({
                       type="button"
                       onClick={onDismissError}
                       aria-label="Dismiss message"
-                      className="p-1 rounded-md text-slate-500 hover:text-slate-800 hover:bg-black/5 transition-colors cursor-pointer"
+                      className="p-1.5 rounded-lg text-slate-500 hover:text-slate-800 hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 transition-colors cursor-pointer"
                     >
                       <X className="w-4 h-4" aria-hidden="true" />
                     </button>
@@ -147,13 +169,13 @@ export function SignInPage({
                 </div>
               )}
 
-              <div className="mt-8">
+              <div className="mt-7">
                 <button
                   type="button"
                   onClick={onSignIn}
                   disabled={signingIn || !isConfigured}
                   aria-busy={signingIn}
-                  className="w-full min-h-[50px] px-5 py-3 rounded-xl border border-slate-300 bg-white text-slate-900 font-medium text-[15px] flex items-center justify-center gap-3 shadow-xs hover:bg-slate-50 hover:border-slate-400 active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 focus-visible:ring-offset-2 disabled:opacity-60 disabled:cursor-not-allowed transition-all duration-150 cursor-pointer"
+                  className="w-full min-h-[48px] px-5 py-3 rounded-xl border border-slate-300 bg-white text-slate-900 font-medium text-[15px] flex items-center justify-center gap-3 hover:bg-slate-50 hover:border-slate-400 active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 focus-visible:ring-offset-2 disabled:opacity-60 disabled:cursor-not-allowed transition-all duration-150 cursor-pointer"
                 >
                   {signingIn ? (
                     <>

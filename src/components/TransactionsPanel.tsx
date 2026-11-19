@@ -132,15 +132,15 @@ export function TransactionsPanel({
 
   return (
     <div className="space-y-6">
-      {/* Summary Metrics Row */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white border border-slate-200 rounded-xl p-4">
+      {/* Unified Summary Metrics Strip */}
+      <div className="bg-white border border-slate-200 rounded-2xl grid grid-cols-2 lg:grid-cols-4 divide-y lg:divide-y-0 divide-x divide-slate-200 overflow-hidden">
+        <div className="p-5">
           <p className="text-xs font-medium text-slate-500">Total Transactions</p>
           <p className="mt-1.5 font-display text-2xl font-bold text-slate-900 tabular-nums">
             {stats.total}
           </p>
         </div>
-        <div className="bg-white border border-slate-200 rounded-xl p-4">
+        <div className="p-5">
           <p className="text-xs font-medium text-slate-500">Successful Payments</p>
           <p className="mt-1.5 font-display text-2xl font-bold text-emerald-700 tabular-nums">
             {stats.successful}
@@ -149,13 +149,13 @@ export function TransactionsPanel({
             {formatInr(stats.totalVolume)} verified
           </p>
         </div>
-        <div className="bg-white border border-slate-200 rounded-xl p-4">
+        <div className="p-5">
           <p className="text-xs font-medium text-slate-500">Pending</p>
           <p className="mt-1.5 font-display text-2xl font-bold text-amber-700 tabular-nums">
             {stats.pending}
           </p>
         </div>
-        <div className="bg-white border border-slate-200 rounded-xl p-4">
+        <div className="p-5">
           <p className="text-xs font-medium text-slate-500">Failed</p>
           <p className="mt-1.5 font-display text-2xl font-bold text-red-700 tabular-nums">
             {stats.failed}
@@ -177,7 +177,7 @@ export function TransactionsPanel({
               key={option.id}
               type="button"
               onClick={() => setRoleFilter(option.id)}
-              className={`min-h-[36px] px-3.5 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-colors cursor-pointer ${
+              className={`min-h-[36px] px-3.5 py-1.5 rounded-lg text-xs sm:text-sm font-medium whitespace-nowrap transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 cursor-pointer ${
                 roleFilter === option.id
                   ? 'bg-white text-slate-900 shadow-xs'
                   : 'text-slate-600 hover:text-slate-900'
@@ -194,7 +194,7 @@ export function TransactionsPanel({
         </p>
       </div>
 
-      {/* Transaction History List */}
+      {/* Transaction History Ledger */}
       {filteredPayments.length === 0 ? (
         <div className="bg-white border border-slate-200 rounded-2xl p-10 text-center max-w-xl mx-auto">
           <div className="w-11 h-11 rounded-xl bg-slate-100 text-slate-600 flex items-center justify-center mx-auto">
@@ -223,13 +223,13 @@ export function TransactionsPanel({
           )}
         </div>
       ) : (
-        <div className="space-y-3">
+        <div className="bg-white border border-slate-200 rounded-2xl divide-y divide-slate-200 overflow-hidden">
           {filteredPayments.map((payment) => {
             const isBuyer = payment.buyerId === currentUserId;
             return (
               <article
                 key={payment.id}
-                className="bg-white border border-slate-200 rounded-xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                className="p-5 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-slate-50/50 transition-colors"
               >
                 <div className="min-w-0 space-y-1.5">
                   <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
@@ -280,7 +280,7 @@ export function TransactionsPanel({
                   </p>
 
                   {payment.verifiedByBackend && payment.status === 'Successful' && (
-                    <p className="text-xs text-emerald-800">
+                    <p className="text-xs text-emerald-800 font-mono">
                       Backend verified
                       {payment.verificationCode ? ` · Code ${payment.verificationCode}` : ''}
                     </p>
@@ -291,7 +291,7 @@ export function TransactionsPanel({
                   )}
                 </div>
 
-                <div className="sm:text-right shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-100 flex sm:flex-col items-center sm:items-end justify-between gap-1">
+                <div className="sm:text-right shrink-0 pt-3 sm:pt-0 border-t sm:border-t-0 border-slate-100 flex sm:flex-col items-center sm:items-end justify-between gap-1">
                   <p className="font-display text-lg font-bold text-slate-900 tabular-nums">
                     {formatInr(payment.amount)}
                   </p>

@@ -126,31 +126,29 @@ export function AdminDashboardPanel({
 
   return (
     <div className="space-y-6">
-      {/* Admin Header Banner */}
-      <div className="bg-white border border-slate-200 rounded-2xl p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div className="flex items-start gap-3.5">
+      {/* Compact Admin Session Strip */}
+      <div className="bg-white border border-slate-200 rounded-2xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="flex items-center gap-3.5 min-w-0">
           <div className="w-10 h-10 rounded-xl bg-blue-50 border border-blue-200 text-blue-700 flex items-center justify-center shrink-0">
             <Shield className="w-5 h-5" aria-hidden="true" />
           </div>
-          <div>
-            <h2 className="font-display text-lg sm:text-xl font-bold text-slate-900">
-              Admin Moderation Dashboard
-            </h2>
-            <p className="mt-1 text-sm text-slate-600 leading-relaxed">
-              Signed in as administrator{' '}
-              <span className="font-medium text-slate-900">{currentUserEmail || currentUserId}</span>.
-              Review and delete any listing or campus request, or manage administrator accounts.
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-slate-900 truncate">
+              Administrator: {currentUserEmail || currentUserId}
+            </p>
+            <p className="text-xs text-slate-500">
+              Full moderation access across shared items, campus requests, and admin accounts.
             </p>
           </div>
         </div>
-        <div className="text-xs text-slate-500 font-mono bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 shrink-0">
+        <div className="text-xs text-slate-600 font-mono bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 shrink-0">
           Your UID: <span className="text-slate-900 font-semibold">{currentUserId}</span>
         </div>
       </div>
 
-      {/* Summary Metrics */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white border border-slate-200 rounded-xl p-4">
+      {/* Unified Summary Metrics Strip */}
+      <div className="bg-white border border-slate-200 rounded-2xl grid grid-cols-2 lg:grid-cols-4 divide-y lg:divide-y-0 divide-x divide-slate-200 overflow-hidden">
+        <div className="p-5">
           <p className="text-xs font-medium text-slate-500">Shared Items</p>
           <p className="mt-1.5 font-display text-2xl font-bold text-slate-900 tabular-nums">
             {stats.totalItems}
@@ -159,7 +157,7 @@ export function AdminDashboardPanel({
             {stats.lendCount} lend · {stats.sellCount} permanent sale
           </p>
         </div>
-        <div className="bg-white border border-slate-200 rounded-xl p-4">
+        <div className="p-5">
           <p className="text-xs font-medium text-slate-500">Campus Requests</p>
           <p className="mt-1.5 font-display text-2xl font-bold text-slate-900 tabular-nums">
             {stats.totalRequests}
@@ -168,13 +166,13 @@ export function AdminDashboardPanel({
             {stats.openRequests} currently open
           </p>
         </div>
-        <div className="bg-white border border-slate-200 rounded-xl p-4">
+        <div className="p-5">
           <p className="text-xs font-medium text-slate-500">Student Profiles</p>
           <p className="mt-1.5 font-display text-2xl font-bold text-slate-900 tabular-nums">
             {stats.totalProfiles}
           </p>
         </div>
-        <div className="bg-white border border-slate-200 rounded-xl p-4">
+        <div className="p-5">
           <p className="text-xs font-medium text-slate-500">Admin Accounts</p>
           <p className="mt-1.5 font-display text-2xl font-bold text-blue-700 tabular-nums">
             {stats.totalAdmins}
@@ -196,7 +194,7 @@ export function AdminDashboardPanel({
             key={tab.id}
             type="button"
             onClick={() => setSection(tab.id)}
-            className={`min-h-[38px] px-3.5 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-colors cursor-pointer ${
+            className={`min-h-[38px] px-3.5 py-1.5 rounded-lg text-xs sm:text-sm font-medium whitespace-nowrap transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 cursor-pointer ${
               section === tab.id
                 ? 'bg-white text-slate-900 shadow-xs'
                 : 'text-slate-600 hover:text-slate-900'
@@ -237,7 +235,7 @@ export function AdminDashboardPanel({
             )}
           </div>
         ) : (
-          <div className="space-y-3">
+          <div className="bg-white border border-slate-200 rounded-2xl divide-y divide-slate-200 overflow-hidden">
             {filteredItems.map((item) => {
               const authorPublic = publicProfilesById[item.authorId];
               const authorDisplay = authorPublic?.displayName || item.authorName;
@@ -250,9 +248,9 @@ export function AdminDashboardPanel({
               return (
                 <article
                   key={item.id}
-                  className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                  className="p-5 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-slate-50/50 transition-colors"
                 >
-                  <div className="flex items-start gap-3.5 min-w-0">
+                  <div className="flex items-start gap-4 min-w-0">
                     {item.photoUrl ? (
                       <img
                         src={item.photoUrl}
@@ -307,7 +305,7 @@ export function AdminDashboardPanel({
                         })
                       }
                       disabled={isDeletingThis}
-                      className="min-h-[40px] px-4 py-2 rounded-xl border border-red-200 bg-white text-xs sm:text-sm font-medium text-red-700 hover:bg-red-50 transition-colors inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                      className="min-h-[38px] px-3.5 py-2 rounded-lg border border-red-200 bg-white text-xs sm:text-sm font-medium text-red-700 hover:bg-red-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 transition-colors inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer disabled:opacity-50"
                     >
                       {isDeletingThis ? (
                         <>
@@ -343,13 +341,13 @@ export function AdminDashboardPanel({
             </p>
           </div>
         ) : (
-          <div className="space-y-3">
+          <div className="bg-white border border-slate-200 rounded-2xl divide-y divide-slate-200 overflow-hidden">
             {filteredRequests.map((req) => {
               const isDeletingThis = deletingId === req.id;
               return (
                 <article
                   key={req.id}
-                  className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                  className="p-5 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-slate-50/50 transition-colors"
                 >
                   <div className="min-w-0 space-y-1">
                     <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-slate-500">
@@ -384,7 +382,7 @@ export function AdminDashboardPanel({
                       })
                     }
                     disabled={isDeletingThis}
-                    className="min-h-[40px] px-4 py-2 rounded-xl border border-red-200 bg-white text-xs sm:text-sm font-medium text-red-700 hover:bg-red-50 transition-colors inline-flex items-center gap-1.5 shrink-0 cursor-pointer disabled:opacity-50"
+                    className="min-h-[38px] px-3.5 py-2 rounded-lg border border-red-200 bg-white text-xs sm:text-sm font-medium text-red-700 hover:bg-red-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 transition-colors inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-50"
                   >
                     <Trash2 className="w-4 h-4" aria-hidden="true" />
                     <span>Delete request</span>
@@ -437,12 +435,12 @@ export function AdminDashboardPanel({
             </div>
           )}
 
-          <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-4">
+          <div className="bg-white border border-slate-200 rounded-2xl p-6 space-y-4">
             <div>
               <h3 className="font-display text-base font-semibold text-slate-900">
                 Grant admin access to a CampusConnect account
               </h3>
-              <p className="mt-1 text-xs sm:text-sm text-slate-600">
+              <p className="mt-1 text-xs sm:text-sm text-slate-600 leading-relaxed">
                 Primary bootstrapped admin:{' '}
                 <span className="font-mono text-slate-900">{BOOTSTRAPPED_ADMIN_EMAIL}</span>. You can
                 also promote any signed-in student UID (for example, your college email UID) below.
@@ -476,7 +474,7 @@ export function AdminDashboardPanel({
               <button
                 type="submit"
                 disabled={Boolean(managingAdminUid) || !uidInput.trim()}
-                className="min-h-[44px] px-5 py-2 rounded-xl bg-blue-700 text-white text-sm font-medium hover:bg-blue-800 inline-flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                className="min-h-[44px] px-5 py-2 rounded-xl bg-blue-700 text-white text-sm font-medium hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 focus-visible:ring-offset-2 inline-flex items-center justify-center gap-2 whitespace-nowrap cursor-pointer disabled:opacity-50"
               >
                 <ShieldPlus className="w-4 h-4" aria-hidden="true" />
                 <span>Grant admin</span>
@@ -484,34 +482,40 @@ export function AdminDashboardPanel({
             </form>
           </div>
 
-          <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-3">
-            <h3 className="font-display text-base font-semibold text-slate-900">
-              Active Admin Records
-            </h3>
-
-            <div className="rounded-lg border border-blue-200 bg-blue-50/60 px-4 py-3 flex items-center justify-between gap-3">
-              <div>
-                <p className="text-sm font-semibold text-slate-900">{BOOTSTRAPPED_ADMIN_EMAIL}</p>
-                <p className="text-xs text-slate-600">Primary bootstrapped administrator</p>
-              </div>
-              <span className="text-xs font-medium text-blue-700">Always active</span>
+          <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
+            <div className="px-6 py-4 border-b border-slate-200">
+              <h3 className="font-display text-base font-semibold text-slate-900">
+                Active Admin Records
+              </h3>
             </div>
 
-            {adminsLoading ? (
-              <p className="text-sm text-slate-500">Loading admin UIDs...</p>
-            ) : adminUids.length === 0 ? (
-              <p className="text-sm text-slate-500">
-                No additional UIDs added in <code className="font-mono text-xs">/admins</code> yet.
-              </p>
-            ) : (
-              <div className="space-y-2">
-                {adminUids.map((uid) => {
+            <div className="divide-y divide-slate-200">
+              <div className="px-6 py-4 bg-blue-50/40 flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-slate-900 truncate">
+                    {BOOTSTRAPPED_ADMIN_EMAIL}
+                  </p>
+                  <p className="text-xs text-slate-600">Primary bootstrapped administrator</p>
+                </div>
+                <span className="text-xs font-medium text-blue-700 whitespace-nowrap shrink-0">
+                  Always active
+                </span>
+              </div>
+
+              {adminsLoading ? (
+                <p className="px-6 py-4 text-sm text-slate-500">Loading admin UIDs...</p>
+              ) : adminUids.length === 0 ? (
+                <p className="px-6 py-4 text-sm text-slate-500">
+                  No additional UIDs added in <code className="font-mono text-xs">/admins</code> yet.
+                </p>
+              ) : (
+                adminUids.map((uid) => {
                   const profile = publicProfilesById[uid];
                   const isBusy = managingAdminUid === uid;
                   return (
                     <div
                       key={uid}
-                      className="rounded-lg border border-slate-200 px-4 py-3 flex items-center justify-between gap-3"
+                      className="px-6 py-4 flex items-center justify-between gap-3"
                     >
                       <div className="min-w-0">
                         <p className="text-sm font-medium text-slate-900 truncate">
@@ -523,16 +527,16 @@ export function AdminDashboardPanel({
                         type="button"
                         onClick={() => void onRevokeAdmin(uid)}
                         disabled={isBusy}
-                        className="min-h-[36px] px-3 py-1.5 rounded-lg border border-red-200 text-xs font-medium text-red-700 hover:bg-red-50 inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                        className="min-h-[36px] px-3 py-1.5 rounded-lg border border-red-200 text-xs font-medium text-red-700 hover:bg-red-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer disabled:opacity-50"
                       >
                         <UserMinus className="w-3.5 h-3.5" aria-hidden="true" />
                         <span>Revoke</span>
                       </button>
                     </div>
                   );
-                })}
-              </div>
-            )}
+                })
+              )}
+            </div>
           </div>
         </div>
       )}

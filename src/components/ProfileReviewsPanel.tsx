@@ -93,40 +93,39 @@ export function ProfileReviewsPanel({
         aria-label="Public student profile and rating summary"
         className="bg-white border border-slate-200 rounded-2xl p-6 sm:p-8"
       >
-        <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-6">
-          <div className="min-w-0">
+        <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-8">
+          <div className="min-w-0 flex-1">
             <p className="text-xs font-medium text-slate-500">JDCOEM student profile</p>
-            <h2 className="mt-1 font-display text-2xl font-bold tracking-tight text-slate-900">
-              {resolvedDisplayName}
-              {isSelf ? ' (You)' : ''}
-            </h2>
-            <p className="mt-1 text-sm font-medium text-slate-700">
-              {academicMeta ? academicMeta : 'Branch & semester not added yet'}
-            </p>
-            <p className="mt-1 text-xs sm:text-sm text-slate-500">
-              Ratings come strictly from fulfilled campus exchanges · Phone numbers are never
-              shown here
-            </p>
-
-            {isSelf && (
-              <div className="mt-4">
+            <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-2">
+              <h2 className="font-display text-2xl font-bold tracking-tight text-slate-900">
+                {resolvedDisplayName}
+                {isSelf ? ' (You)' : ''}
+              </h2>
+              {isSelf && (
                 <button
                   type="button"
                   onClick={onOpenEditProfile}
-                  className="min-h-[38px] px-3.5 py-1.5 rounded-lg border border-slate-300 bg-white text-xs sm:text-sm font-medium text-slate-700 hover:bg-slate-50 hover:text-slate-900 transition-colors inline-flex items-center gap-1.5 cursor-pointer"
+                  className="min-h-[36px] px-3.5 py-1.5 rounded-lg border border-slate-300 bg-white text-xs font-medium text-slate-700 hover:bg-slate-50 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 transition-colors inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
                 >
                   <Pencil className="w-3.5 h-3.5" aria-hidden="true" />
                   <span>Edit my profile</span>
                 </button>
-              </div>
-            )}
+              )}
+            </div>
+            <p className="mt-1.5 text-sm font-medium text-slate-700">
+              {academicMeta ? academicMeta : 'Branch & semester not added yet'}
+            </p>
+            <p className="mt-1 text-xs sm:text-sm text-slate-500 leading-relaxed">
+              Ratings come strictly from fulfilled campus exchanges · Phone numbers are never
+              shown here
+            </p>
 
             {count > 0 ? (
-              <div className="mt-5 flex flex-wrap items-center gap-3.5">
-                <span className="font-display text-3xl font-bold text-slate-900 tabular-nums">
+              <div className="mt-6 pt-5 border-t border-slate-100 flex flex-wrap items-center gap-4">
+                <span className="font-display text-4xl font-bold text-slate-900 tabular-nums leading-none">
                   {average.toFixed(1)}
                 </span>
-                <div className="flex flex-col gap-0.5">
+                <div className="flex flex-col gap-1">
                   <StarScoreRow score={average} size="md" />
                   <span className="text-xs sm:text-sm text-slate-600 tabular-nums">
                     Based on {count} completed exchange {count === 1 ? 'rating' : 'ratings'}
@@ -134,14 +133,14 @@ export function ProfileReviewsPanel({
                 </div>
               </div>
             ) : (
-              <div className="mt-5 flex items-center gap-2 text-sm font-medium text-slate-600">
+              <div className="mt-6 pt-5 border-t border-slate-100 flex items-center gap-2 text-sm font-medium text-slate-600">
                 <Star className="w-4 h-4 text-slate-400 shrink-0" aria-hidden="true" />
                 <span>No ratings yet</span>
               </div>
             )}
           </div>
 
-          <div className="w-full lg:w-80 shrink-0 space-y-3">
+          <div className="w-full lg:w-80 shrink-0 space-y-4 lg:pl-8 lg:border-l lg:border-slate-100">
             <div>
               <label
                 htmlFor="profile-review-student-select"
@@ -206,29 +205,35 @@ export function ProfileReviewsPanel({
                     selfPublic?.displayName || selfProfile?.displayName || 'You'
                   );
                 }}
-                className="text-xs font-medium text-blue-700 hover:underline cursor-pointer"
+                className="text-xs font-medium text-blue-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 rounded cursor-pointer"
               >
                 Switch back to your own profile
               </button>
             )}
 
             {count > 0 && (
-              <div className="pt-2 border-t border-slate-100 space-y-1.5">
+              <div className="pt-3 border-t border-slate-100 space-y-2">
                 {starCounts.map(({ starValue, total }) => {
                   const pct = count > 0 ? Math.round((total / count) * 100) : 0;
                   return (
                     <div
                       key={starValue}
-                      className="flex items-center justify-between gap-3 text-xs text-slate-600 tabular-nums"
+                      className="flex items-center gap-3 text-xs text-slate-600 tabular-nums"
                     >
-                      <span className="font-medium text-slate-700 inline-flex items-center gap-1">
+                      <span className="font-medium text-slate-700 inline-flex items-center gap-1 w-8 shrink-0">
                         <span>{starValue}</span>
                         <Star
                           className="w-3 h-3 fill-amber-400 text-amber-500"
                           aria-hidden="true"
                         />
                       </span>
-                      <span className="text-slate-500">
+                      <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-amber-400 rounded-full"
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                      <span className="text-slate-500 text-right w-14 shrink-0">
                         {total} ({pct}%)
                       </span>
                     </div>
@@ -293,7 +298,7 @@ export function ProfileReviewsPanel({
             );
 
             return (
-              <article key={rating.id} className="p-5 sm:p-6">
+              <article key={rating.id} className="p-6">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex flex-wrap items-center gap-2.5">
                     <StarScoreRow score={rating.score} />
@@ -312,16 +317,16 @@ export function ProfileReviewsPanel({
                 </div>
 
                 {rating.comment ? (
-                  <p className="mt-3 text-sm sm:text-[15px] text-slate-800 leading-relaxed">
+                  <p className="mt-3.5 text-sm sm:text-[15px] text-slate-800 leading-relaxed max-w-3xl">
                     {rating.comment}
                   </p>
                 ) : (
-                  <p className="mt-3 text-xs italic text-slate-500">
+                  <p className="mt-3.5 text-xs italic text-slate-500">
                     No written comment provided for this exchange.
                   </p>
                 )}
 
-                <div className="mt-4 pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-500">
+                <div className="mt-4 pt-3.5 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-500">
                   <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                     <span>
                       Completed exchange:{' '}
@@ -333,7 +338,7 @@ export function ProfileReviewsPanel({
                       <button
                         type="button"
                         onClick={() => onSelectProfile(rating.raterId, raterDisplayName)}
-                        className="font-medium text-blue-700 hover:underline cursor-pointer"
+                        className="font-medium text-blue-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 rounded cursor-pointer"
                       >
                         {isAuthor ? 'You' : raterDisplayName}
                       </button>
@@ -353,7 +358,7 @@ export function ProfileReviewsPanel({
                     <button
                       type="button"
                       onClick={() => onEditRating(rating)}
-                      className="min-h-[32px] px-2.5 py-1 rounded-lg border border-slate-300 bg-white text-xs font-medium text-slate-700 hover:bg-slate-100 hover:text-slate-900 transition-colors inline-flex items-center gap-1 cursor-pointer"
+                      className="min-h-[34px] px-3 py-1 rounded-lg border border-slate-300 bg-white text-xs font-medium text-slate-700 hover:bg-slate-50 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 transition-colors inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer"
                     >
                       <Pencil className="w-3 h-3" aria-hidden="true" />
                       <span>Edit ({formatRemainingEditWindow(rating)})</span>

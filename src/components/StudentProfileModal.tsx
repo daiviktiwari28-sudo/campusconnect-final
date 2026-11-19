@@ -119,7 +119,7 @@ export function StudentProfileModal({
             onClick={onClose}
             disabled={savingProfile}
             aria-label="Close dialog"
-            className="p-1.5 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100 cursor-pointer"
+            className="p-1.5 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 cursor-pointer"
           >
             <X className="w-4 h-4" aria-hidden="true" />
           </button>
@@ -251,14 +251,14 @@ export function StudentProfileModal({
               type="button"
               onClick={onClose}
               disabled={savingProfile}
-              className="min-h-[42px] px-4 py-2 rounded-xl border border-slate-300 bg-white text-sm font-medium text-slate-700 hover:bg-slate-50 cursor-pointer"
+              className="min-h-[42px] px-4 py-2 rounded-xl border border-slate-300 bg-white text-sm font-medium text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 cursor-pointer"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={savingProfile}
-              className="min-h-[42px] px-5 py-2 rounded-xl bg-blue-700 text-white text-sm font-medium hover:bg-blue-800 inline-flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
+              className="min-h-[42px] px-5 py-2 rounded-xl bg-blue-700 text-white text-sm font-medium hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 focus-visible:ring-offset-2 inline-flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
             >
               {savingProfile ? (
                 <>

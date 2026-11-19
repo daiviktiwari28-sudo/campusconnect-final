@@ -10,10 +10,12 @@ import {
   Info,
   Loader2,
   LogOut,
+  Menu,
   Package,
   Pencil,
   Phone,
   Plus,
+  Receipt,
   Search,
   Shield,
   ShoppingBag,
@@ -204,6 +206,7 @@ export function MainPage({
   const [rateTarget, setRateTarget] = useState<RateModalTarget | null>(null);
   const [profileRatingTarget, setProfileRatingTarget] =
     useState<ProfileReviewCandidate | null>(null);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -225,6 +228,17 @@ export function MainPage({
       setActiveView('items');
     }
   }, [activeView, isAdmin]);
+
+  useEffect(() => {
+    if (!mobileNavOpen) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setMobileNavOpen(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [mobileNavOpen]);
 
   const {
     allItems,
@@ -493,6 +507,11 @@ export function MainPage({
     setDeleteTarget(null);
   }
 
+  function handleSelectView(view: ActiveView) {
+    setActiveView(view);
+    setMobileNavOpen(false);
+  }
+
   function handleOpenProfileRatings(userId: string, userName: string) {
     const publicMatch = publicProfilesById[userId];
     setProfileRatingTarget({
@@ -500,6 +519,7 @@ export function MainPage({
       displayName: publicMatch?.displayName || userName,
     });
     setActiveView('profile-reviews');
+    setMobileNavOpen(false);
     setSearchQuery('');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
@@ -568,7 +588,7 @@ export function MainPage({
           <button
             type="button"
             onClick={() => handleOpenNewRequest(null)}
-            className="mt-6 min-h-[42px] px-5 py-2 rounded-xl bg-blue-700 text-white text-sm font-medium hover:bg-blue-800 inline-flex items-center gap-2 cursor-pointer"
+            className="mt-6 min-h-[42px] px-5 py-2 rounded-xl bg-blue-700 text-white text-sm font-medium hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 focus-visible:ring-offset-2 inline-flex items-center gap-2 cursor-pointer"
           >
             <HandHelping className="w-4 h-4" aria-hidden="true" />
             <span>New request</span>
@@ -593,7 +613,7 @@ export function MainPage({
           <button
             type="button"
             onClick={handleClearSearch}
-            className="mt-6 min-h-[40px] px-4 py-2 rounded-xl border border-slate-300 bg-white text-sm font-medium text-slate-700 hover:bg-slate-50 cursor-pointer"
+            className="mt-6 min-h-[40px] px-4 py-2 rounded-xl border border-slate-300 bg-white text-sm font-medium text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 cursor-pointer"
           >
             Clear search
           </button>
@@ -602,7 +622,7 @@ export function MainPage({
     }
 
     return (
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
         {requests.map((req) => {
           const isRequester = req.requesterId === user.uid;
           const isAccepter = req.acceptedById === user.uid;
@@ -644,16 +664,16 @@ export function MainPage({
           return (
             <article
               key={req.id}
-              className="bg-white border border-slate-200 rounded-xl overflow-hidden flex flex-col justify-between"
+              className="bg-white border border-slate-200 rounded-2xl overflow-hidden flex flex-col justify-between transition-colors duration-150 hover:border-slate-300"
             >
               <div>
                 {req.itemPhotoUrl && req.itemTitle && (
-                  <div className="flex items-center gap-3 p-3.5 bg-slate-50 border-b border-slate-200">
+                  <div className="flex items-center gap-3 px-5 py-3.5 bg-slate-50/70 border-b border-slate-100">
                     <img
                       src={req.itemPhotoUrl}
                       alt={req.itemTitle}
                       referrerPolicy="no-referrer"
-                      className="w-12 h-9 rounded-md object-cover border border-slate-200 shrink-0"
+                      className="w-12 h-9 rounded-lg object-cover border border-slate-200 shrink-0"
                     />
                     <span className="text-xs font-medium text-slate-700 truncate">
                       Item: {req.itemTitle}
@@ -661,7 +681,7 @@ export function MainPage({
                   </div>
                 )}
 
-                <div className="p-5">
+                <div className="p-5 sm:p-6">
                   <div className="flex items-center justify-between gap-2">
                     <RequestStatusLabel status={req.status} />
                     <span className="text-xs text-slate-400 tabular-nums">
@@ -673,7 +693,7 @@ export function MainPage({
                     {req.description}
                   </p>
 
-                  <div className="mt-4 pt-3.5 border-t border-slate-100 space-y-2.5 text-xs text-slate-600">
+                  <div className="mt-4 pt-4 border-t border-slate-100 space-y-3 text-xs text-slate-600">
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
                         <p>
@@ -705,7 +725,7 @@ export function MainPage({
                     </div>
 
                     {req.acceptedById && accepterDisplay && (
-                      <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-start justify-between gap-2 pt-3 border-t border-slate-100">
                         <div className="min-w-0">
                           <p>
                             Accepted by{' '}
@@ -737,7 +757,7 @@ export function MainPage({
                     )}
 
                     {req.status === 'Accepted' && (
-                      <div className="pt-2.5 border-t border-slate-100 space-y-1.5">
+                      <div className="pt-3 border-t border-slate-100 space-y-1.5">
                         <p className="font-medium text-slate-700">
                           Fulfillment confirmation (both required to rate):
                         </p>
@@ -773,13 +793,13 @@ export function MainPage({
                 </div>
               </div>
 
-              <div className="px-5 py-3.5 bg-slate-50/70 border-t border-slate-100 flex items-center justify-between gap-3">
+              <div className="px-5 sm:px-6 py-4 bg-slate-50/60 border-t border-slate-100 flex items-center justify-between gap-3">
                 {canAccept ? (
                   <button
                     type="button"
                     onClick={() => void handleAcceptRequestClick(req)}
                     disabled={isUpdating || !isBackendConfigured}
-                    className="w-full min-h-[38px] px-4 py-2 rounded-lg bg-blue-700 text-white text-xs font-medium hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 transition-colors inline-flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
+                    className="w-full min-h-[40px] px-4 py-2 rounded-xl bg-blue-700 text-white text-xs sm:text-sm font-medium hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 focus-visible:ring-offset-2 transition-colors inline-flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
                   >
                     {isUpdating ? (
                       <>
@@ -791,7 +811,7 @@ export function MainPage({
                     )}
                   </button>
                 ) : canConfirmFulfilled ? (
-                  <div className="w-full space-y-2">
+                  <div className="w-full space-y-2.5">
                     <p className="text-xs text-slate-600 leading-relaxed">
                       {otherConfirmed
                         ? `${isBorrower ? 'Lender' : 'Borrower'} already marked Fulfilled · Press Mark Fulfilled to complete & unlock ratings.`
@@ -801,7 +821,7 @@ export function MainPage({
                       type="button"
                       onClick={() => void fulfillRequest(req)}
                       disabled={isUpdating || !isBackendConfigured}
-                      className="w-full min-h-[38px] px-4 py-2 rounded-lg bg-emerald-700 text-white text-xs font-medium hover:bg-emerald-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-700 transition-colors inline-flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
+                      className="w-full min-h-[40px] px-4 py-2 rounded-xl bg-emerald-700 text-white text-xs sm:text-sm font-medium hover:bg-emerald-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-700 focus-visible:ring-offset-2 transition-colors inline-flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
                     >
                       {isUpdating ? (
                         <>
@@ -842,7 +862,7 @@ export function MainPage({
                             type="button"
                             onClick={() => handleOpenCreateRating(req)}
                             disabled={!isBackendConfigured}
-                            className="min-h-[34px] px-3 py-1.5 rounded-lg bg-blue-700 text-white text-xs font-medium hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 transition-colors inline-flex items-center gap-1.5 shrink-0 cursor-pointer disabled:opacity-50"
+                            className="min-h-[36px] px-3.5 py-1.5 rounded-xl bg-blue-700 text-white text-xs font-medium hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 transition-colors inline-flex items-center gap-1.5 shrink-0 cursor-pointer disabled:opacity-50"
                           >
                             <Star className="w-3.5 h-3.5" aria-hidden="true" />
                             <span>{isRequester ? 'Rate lender' : 'Rate borrower'}</span>
@@ -873,7 +893,7 @@ export function MainPage({
                             type="button"
                             onClick={() => handleOpenEditRating(existingRating)}
                             title={formatRemainingEditWindow(existingRating)}
-                            className="min-h-[32px] px-2.5 py-1 rounded-lg border border-slate-300 bg-white text-xs font-medium text-slate-700 hover:bg-slate-100 hover:text-slate-900 transition-colors inline-flex items-center gap-1 shrink-0 cursor-pointer"
+                            className="min-h-[34px] px-3 py-1 rounded-lg border border-slate-300 bg-white text-xs font-medium text-slate-700 hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 transition-colors inline-flex items-center gap-1 shrink-0 cursor-pointer"
                           >
                             <Pencil className="w-3 h-3" aria-hidden="true" />
                             <span>Edit rating</span>
@@ -895,52 +915,156 @@ export function MainPage({
     );
   }
 
-  return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col">
-      {/* Top Bar Contract: Brand — Signed-In Student & Profile Details — Sign Out */}
-      <header className="bg-white border-b border-slate-200 sticky top-0 z-30">
-        <div className="max-w-[1200px] mx-auto px-4 sm:px-8 h-16 flex items-center justify-between gap-4 sm:gap-8">
-          <div className="flex items-center gap-2.5 whitespace-nowrap shrink-0">
-            <div className="w-8 h-8 rounded-lg bg-blue-700 text-white flex items-center justify-center">
-              <GraduationCap className="w-4 h-4" aria-hidden="true" />
-            </div>
-            <span className="font-display text-lg font-bold tracking-tight text-slate-900">
-              CampusConnect
-            </span>
-          </div>
+  const sectionHeaderMeta: Record<ActiveView, { title: string; subtitle: string }> = {
+    items: {
+      title: 'Shared Items',
+      subtitle: 'Borrow everyday essentials or buy permanent-sale items from JDCOEM students.',
+    },
+    'shared-requests': {
+      title: 'Shared Requests',
+      subtitle: 'Open requests posted by classmates — accept one to help out on campus.',
+    },
+    'my-requests': {
+      title: 'My Requests',
+      subtitle: 'Track requests you created across Open, Accepted, and two-party Fulfilled stages.',
+    },
+    'profile-reviews': {
+      title: 'Profile Reviews',
+      subtitle: 'Public student profiles and verified exchange ratings across JDCOEM.',
+    },
+    transactions: {
+      title: 'Transactions',
+      subtitle: 'Backend-verified purchase and sale receipts across Campus UPI and Direct Pay.',
+    },
+    admin: {
+      title: 'Admin Dashboard',
+      subtitle: 'Moderate shared items and requests across campus and manage administrator access.',
+    },
+  };
 
-          <div className="hidden sm:flex items-center gap-2.5 min-w-0">
-            {showAvatarImage ? (
-              <img
-                src={user.photoURL!}
-                alt={displayName}
-                referrerPolicy="no-referrer"
-                onError={() => setAvatarFailed(true)}
-                className="w-8 h-8 rounded-full object-cover border border-slate-200 shrink-0"
-              />
-            ) : (
-              <div
-                aria-hidden="true"
-                className="w-8 h-8 rounded-full bg-blue-50 border border-blue-200 text-blue-800 text-xs font-semibold flex items-center justify-center shrink-0"
-              >
-                {initials}
-              </div>
+  const activeSectionMeta = sectionHeaderMeta[activeView];
+  const isItemsPrimaryView = activeView === 'items';
+  const isRequestPrimaryView =
+    activeView === 'shared-requests' || activeView === 'my-requests';
+
+  const navGroups: Array<{
+    label: string;
+    items: Array<{
+      id: ActiveView;
+      label: string;
+      count?: number;
+      icon: typeof Package;
+    }>;
+  }> = [
+    {
+      label: 'Campus Exchange',
+      items: [
+        { id: 'items', label: 'Shared Items', count: allItems.length, icon: Package },
+        {
+          id: 'shared-requests',
+          label: 'Shared Requests',
+          count: sharedRequests.length,
+          icon: Inbox,
+        },
+        { id: 'my-requests', label: 'My Requests', count: myRequests.length, icon: HandHelping },
+      ],
+    },
+    {
+      label: 'Account & Trust',
+      items: [
+        { id: 'profile-reviews', label: 'Profile Reviews', count: ratings.length, icon: Star },
+        { id: 'transactions', label: 'Transactions', count: payments.length, icon: Receipt },
+      ],
+    },
+    ...(isAdmin
+      ? [
+          {
+            label: 'Moderation',
+            items: [{ id: 'admin' as ActiveView, label: 'Admin Dashboard', icon: Shield }],
+          },
+        ]
+      : []),
+  ];
+
+  const flatNavItems = navGroups.flatMap((group) => group.items);
+
+  function renderSidebarNavigation() {
+    return (
+      <nav aria-label="CampusConnect navigation" className="flex-1 overflow-y-auto px-3 py-5 space-y-6">
+        {navGroups.map((group) => (
+          <div key={group.label}>
+            <p className="px-3 mb-2 text-xs font-semibold text-slate-400">{group.label}</p>
+            <div className="space-y-1">
+              {group.items.map((item) => {
+                const Icon = item.icon;
+                const isActive = activeView === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    aria-current={isActive ? 'page' : undefined}
+                    onClick={() => handleSelectView(item.id)}
+                    className={`w-full min-h-[40px] px-3 py-2 rounded-xl text-sm flex items-center justify-between gap-2 transition-colors whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 cursor-pointer ${
+                      isActive
+                        ? 'bg-blue-50 text-blue-800 font-semibold'
+                        : 'text-slate-600 font-medium hover:bg-slate-50 hover:text-slate-900'
+                    }`}
+                  >
+                    <span className="inline-flex items-center gap-2.5 min-w-0">
+                      <Icon
+                        className={`w-4 h-4 shrink-0 ${
+                          isActive ? 'text-blue-700' : 'text-slate-400'
+                        }`}
+                        aria-hidden="true"
+                      />
+                      <span className="truncate">{item.label}</span>
+                    </span>
+                    {typeof item.count === 'number' && (
+                      <span
+                        className={`text-xs tabular-nums shrink-0 ${
+                          isActive ? 'text-blue-700 font-semibold' : 'text-slate-400'
+                        }`}
+                      >
+                        {item.count}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </nav>
+    );
+  }
+
+  function renderSidebarAccountBlock() {
+    return (
+      <div className="border-t border-slate-200 p-4 bg-white shrink-0 space-y-3">
+        <div className="flex items-start gap-3 min-w-0">
+          {showAvatarImage ? (
+            <img
+              src={user.photoURL!}
+              alt={displayName}
+              referrerPolicy="no-referrer"
+              onError={() => setAvatarFailed(true)}
+              className="w-9 h-9 rounded-full object-cover border border-slate-200 shrink-0 mt-0.5"
+            />
+          ) : (
+            <div
+              aria-hidden="true"
+              className="w-9 h-9 rounded-full bg-blue-50 border border-blue-200 text-blue-800 text-xs font-semibold flex items-center justify-center shrink-0 mt-0.5"
+            >
+              {initials}
+            </div>
+          )}
+
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold text-slate-900 truncate">{displayName}</p>
+            {myAcademicMeta && (
+              <p className="text-xs text-slate-500 truncate mt-0.5">{myAcademicMeta}</p>
             )}
-            <div className="min-w-0 flex items-center gap-2 text-sm">
-              <span className="font-medium text-slate-800 truncate max-w-[160px]">
-                {displayName}
-              </span>
-              {myAcademicMeta && (
-                <>
-                  <span className="text-slate-300" aria-hidden="true">
-                    ·
-                  </span>
-                  <span className="text-xs text-slate-600 whitespace-nowrap">{myAcademicMeta}</span>
-                </>
-              )}
-              <span className="text-slate-300" aria-hidden="true">
-                ·
-              </span>
+            <div className="mt-1">
               <StarRatingDisplay
                 userId={user.uid}
                 userName={displayName}
@@ -948,29 +1072,88 @@ export function MainPage({
                 onOpenProfile={handleOpenProfileRatings}
                 compact
               />
-              {hasPhone && (
-                <>
-                  <span className="text-slate-300" aria-hidden="true">
-                    ·
-                  </span>
-                  <span className="text-xs text-slate-500 whitespace-nowrap">{userPhone}</span>
-                </>
-              )}
-              {isAdmin && (
-                <>
-                  <span className="text-slate-300" aria-hidden="true">
-                    ·
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setActiveView('admin')}
-                    className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700 hover:text-blue-900 hover:underline whitespace-nowrap cursor-pointer"
-                  >
-                    <Shield className="w-3.5 h-3.5" aria-hidden="true" />
-                    <span>Admin</span>
-                  </button>
-                </>
-              )}
+            </div>
+            {hasPhone && (
+              <p className="mt-1 text-xs text-slate-500 truncate tabular-nums">{userPhone}</p>
+            )}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              onClearProfileError();
+              setMobileNavOpen(false);
+              setIsEditProfileOpen(true);
+            }}
+            disabled={!isBackendConfigured}
+            className="min-h-[38px] px-2.5 py-1.5 rounded-xl border border-slate-200 bg-white text-xs font-medium text-slate-700 hover:text-slate-900 hover:bg-slate-50 hover:border-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 disabled:opacity-50 transition-colors inline-flex items-center justify-center gap-1.5 whitespace-nowrap cursor-pointer"
+          >
+            <UserRound className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+            <span>My profile</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={onSignOut}
+            disabled={signingOut}
+            className="min-h-[38px] px-2.5 py-1.5 rounded-xl border border-slate-200 bg-white text-xs font-medium text-slate-700 hover:text-slate-900 hover:bg-slate-50 hover:border-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors inline-flex items-center justify-center gap-1.5 whitespace-nowrap cursor-pointer"
+          >
+            {signingOut ? (
+              <>
+                <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" aria-hidden="true" />
+                <span>Signing out</span>
+              </>
+            ) : (
+              <>
+                <LogOut className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                <span>Sign out</span>
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col">
+      {/* Desktop Left Sidebar */}
+      <aside className="hidden lg:flex lg:flex-col lg:w-64 lg:fixed lg:inset-y-0 lg:left-0 bg-white border-r border-slate-200 z-30">
+        <div className="h-16 px-5 border-b border-slate-100 flex items-center gap-2.5 shrink-0">
+          <div className="w-8 h-8 rounded-lg bg-blue-700 text-white flex items-center justify-center shrink-0">
+            <GraduationCap className="w-4 h-4" aria-hidden="true" />
+          </div>
+          <span className="font-display text-lg font-bold tracking-tight text-slate-900">
+            CampusConnect
+          </span>
+        </div>
+
+        {renderSidebarNavigation()}
+        {renderSidebarAccountBlock()}
+      </aside>
+
+      {/* Mobile & Tablet Compact Top Bar */}
+      <header className="lg:hidden sticky top-0 z-30 bg-white border-b border-slate-200">
+        <div className="h-14 px-4 sm:px-6 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <button
+              type="button"
+              onClick={() => setMobileNavOpen(true)}
+              aria-label="Open navigation menu"
+              aria-expanded={mobileNavOpen}
+              className="min-h-[40px] min-w-[40px] -ml-1.5 rounded-lg text-slate-700 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 inline-flex items-center justify-center cursor-pointer"
+            >
+              <Menu className="w-5 h-5" aria-hidden="true" />
+            </button>
+            <div className="flex items-center gap-2 whitespace-nowrap">
+              <div className="w-7 h-7 rounded-lg bg-blue-700 text-white flex items-center justify-center shrink-0">
+                <GraduationCap className="w-4 h-4" aria-hidden="true" />
+              </div>
+              <span className="font-display text-base font-bold tracking-tight text-slate-900">
+                CampusConnect
+              </span>
             </div>
           </div>
 
@@ -982,245 +1165,263 @@ export function MainPage({
                 setIsEditProfileOpen(true);
               }}
               disabled={!isBackendConfigured}
-              className="min-h-[40px] px-3 py-2 rounded-lg border border-slate-200 bg-white text-xs sm:text-sm font-medium text-slate-700 hover:text-slate-900 hover:bg-slate-50 hover:border-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 focus-visible:ring-offset-2 disabled:opacity-50 transition-colors duration-150 inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer"
+              aria-label="My profile"
+              className="min-h-[38px] px-2.5 sm:px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-xs font-medium text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 disabled:opacity-50 inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer"
             >
               <UserRound className="w-4 h-4" aria-hidden="true" />
-              <span className="hidden md:inline">My profile</span>
+              <span className="hidden sm:inline">My profile</span>
             </button>
 
             <button
               type="button"
               onClick={onSignOut}
               disabled={signingOut}
-              className="min-h-[40px] px-4 py-2 rounded-lg border border-slate-200 bg-white text-sm font-medium text-slate-700 hover:text-slate-900 hover:bg-slate-50 hover:border-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 focus-visible:ring-offset-2 disabled:opacity-60 disabled:cursor-not-allowed transition-colors duration-150 inline-flex items-center gap-2 whitespace-nowrap cursor-pointer"
+              aria-label="Sign out"
+              className="min-h-[38px] px-2.5 sm:px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-xs font-medium text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 disabled:opacity-60 inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer"
             >
               {signingOut ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
-                  <span>Signing out...</span>
-                </>
+                <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
               ) : (
-                <>
-                  <LogOut className="w-4 h-4" aria-hidden="true" />
-                  <span>Sign out</span>
-                </>
+                <LogOut className="w-4 h-4" aria-hidden="true" />
               )}
+              <span className="hidden sm:inline">{signingOut ? 'Signing out...' : 'Sign out'}</span>
             </button>
           </div>
         </div>
       </header>
 
-      <main className="flex-1 w-full max-w-[1200px] mx-auto px-4 sm:px-8 py-8 sm:py-10">
-        {!isBackendConfigured && (
+      {/* Mobile & Tablet Slide-Over Navigation Drawer */}
+      {mobileNavOpen && (
+        <div
+          className="fixed inset-0 z-50 lg:hidden flex"
+          role="dialog"
+          aria-modal="true"
+          aria-label="CampusConnect navigation menu"
+        >
           <div
-            role="alert"
-            className="mb-6 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950 flex items-start gap-3"
-          >
-            <Info className="w-5 h-5 text-amber-700 shrink-0 mt-0.5" aria-hidden="true" />
-            <div>
-              <p className="font-semibold">Shared database is not configured</p>
-              <p className="mt-1 leading-relaxed">
-                Add valid Firebase project settings to{' '}
-                <code className="font-mono text-xs bg-amber-100 px-1.5 py-0.5 rounded">
-                  firebase-applet-config.json
-                </code>{' '}
-                and deploy{' '}
-                <code className="font-mono text-xs bg-amber-100 px-1.5 py-0.5 rounded">
-                  firestore.rules
-                </code>{' '}
-                to sync items and requests across signed-in users.
-              </p>
-            </div>
-          </div>
-        )}
-
-        {error && (
-          <div
-            role="alert"
-            className="mb-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-900 flex items-start gap-3"
-          >
-            <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" aria-hidden="true" />
-            <div className="flex-1 min-w-0">
-              <p className="font-semibold">{error.title}</p>
-              <p className="mt-0.5 opacity-90">{error.message}</p>
-            </div>
-            <button
-              type="button"
-              onClick={onDismissError}
-              aria-label="Dismiss authentication error"
-              className="p-1 rounded-md text-red-700 hover:bg-red-100 transition-colors cursor-pointer"
-            >
-              <X className="w-4 h-4" aria-hidden="true" />
-            </button>
-          </div>
-        )}
-
-        {newRequestAlert && (
-          <div
-            role="status"
-            className="mb-6 rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-950 flex flex-wrap items-center justify-between gap-3"
-          >
-            <div className="flex items-start gap-3 min-w-0 flex-1">
-              <Bell className="w-5 h-5 text-blue-700 shrink-0 mt-0.5" aria-hidden="true" />
-              <p className="min-w-0 leading-relaxed">
-                <span className="font-semibold">New request from {newRequestAlert.requesterName}:</span>{' '}
-                “{newRequestAlert.description}”
-              </p>
-            </div>
-            <div className="flex items-center gap-2 shrink-0">
+            className="fixed inset-0 bg-slate-950/40 backdrop-blur-[1px]"
+            onClick={() => setMobileNavOpen(false)}
+          />
+          <div className="relative w-72 max-w-[85vw] h-full bg-white border-r border-slate-200 flex flex-col shadow-xl">
+            <div className="h-14 px-4 border-b border-slate-100 flex items-center justify-between gap-2 shrink-0">
+              <div className="flex items-center gap-2">
+                <div className="w-7 h-7 rounded-lg bg-blue-700 text-white flex items-center justify-center">
+                  <GraduationCap className="w-4 h-4" aria-hidden="true" />
+                </div>
+                <span className="font-display text-base font-bold tracking-tight text-slate-900">
+                  CampusConnect
+                </span>
+              </div>
               <button
                 type="button"
-                onClick={() => {
-                  setActiveView('shared-requests');
-                  dismissNewRequestAlert();
-                }}
-                className="min-h-[34px] px-3 py-1.5 rounded-lg bg-blue-700 text-white text-xs font-medium hover:bg-blue-800 transition-colors cursor-pointer"
-              >
-                View Shared Requests
-              </button>
-              <button
-                type="button"
-                onClick={dismissNewRequestAlert}
-                aria-label="Dismiss new request alert"
-                className="p-1 rounded-md text-blue-800 hover:bg-blue-100 transition-colors cursor-pointer"
+                onClick={() => setMobileNavOpen(false)}
+                aria-label="Close navigation menu"
+                className="min-h-[36px] min-w-[36px] rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 inline-flex items-center justify-center cursor-pointer"
               >
                 <X className="w-4 h-4" aria-hidden="true" />
               </button>
             </div>
-          </div>
-        )}
 
-        {(statusMessage || ratingStatusMessage || paymentStatusMessage) && (
+            {renderSidebarNavigation()}
+            {renderSidebarAccountBlock()}
+          </div>
+        </div>
+      )}
+
+      {/* Workspace Main Content */}
+      <div className="flex-1 lg:pl-64 flex flex-col min-w-0">
+        <main className="flex-1 w-full max-w-[1160px] mx-auto px-4 sm:px-8 py-6 sm:py-8">
+          {/* Mobile Quick View Switcher (non-sticky to preserve viewport space) */}
           <div
-            role="status"
-            className="mb-6 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-950 flex items-start gap-3"
+            role="tablist"
+            aria-label="CampusConnect sections"
+            className="lg:hidden mb-5 -mx-4 px-4 sm:-mx-8 sm:px-8 overflow-x-auto"
           >
-            <CheckCircle2
-              className="w-5 h-5 text-emerald-700 shrink-0 mt-0.5"
-              aria-hidden="true"
-            />
-            <p className="flex-1 min-w-0 leading-relaxed">
-              {paymentStatusMessage || ratingStatusMessage || statusMessage}
-            </p>
-            <button
-              type="button"
-              onClick={() => {
-                clearStatusMessage();
-                clearRatingStatusMessage();
-                clearPaymentStatusMessage();
-              }}
-              aria-label="Dismiss confirmation"
-              className="p-1 rounded-md text-emerald-800 hover:bg-emerald-100 transition-colors cursor-pointer"
-            >
-              <X className="w-4 h-4" aria-hidden="true" />
-            </button>
+            <div className="inline-flex items-center gap-1.5 pb-1">
+              {flatNavItems.map((item) => {
+                const isActive = activeView === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={isActive}
+                    onClick={() => handleSelectView(item.id)}
+                    className={`min-h-[38px] px-3.5 py-1.5 rounded-xl text-xs sm:text-sm font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                      isActive
+                        ? 'bg-blue-700 text-white'
+                        : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50'
+                    }`}
+                  >
+                    <span>{item.label}</span>
+                    {typeof item.count === 'number' && (
+                      <span
+                        className={`ml-1.5 text-xs tabular-nums ${
+                          isActive ? 'text-blue-100' : 'text-slate-400'
+                        }`}
+                      >
+                        {item.count}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
           </div>
-        )}
 
-        {(itemsError || ratingsError || paymentsError) && (
-          <div
-            role="alert"
-            className="mb-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-950 flex items-start gap-3"
-          >
-            <AlertCircle className="w-5 h-5 text-red-700 shrink-0 mt-0.5" aria-hidden="true" />
-            <p className="flex-1 min-w-0 leading-relaxed">
-              {paymentsError || ratingsError || itemsError}
-            </p>
-            <button
-              type="button"
-              onClick={() => {
-                clearItemsError();
-                clearRatingsError();
-                clearPaymentsError();
-              }}
-              aria-label="Dismiss error"
-              className="p-1 rounded-md text-red-800 hover:bg-red-100 transition-colors cursor-pointer"
+          {!isBackendConfigured && (
+            <div
+              role="alert"
+              className="mb-6 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950 flex items-start gap-3"
             >
-              <X className="w-4 h-4" aria-hidden="true" />
-            </button>
-          </div>
-        )}
+              <Info className="w-5 h-5 text-amber-700 shrink-0 mt-0.5" aria-hidden="true" />
+              <div>
+                <p className="font-semibold">Shared database is not configured</p>
+                <p className="mt-1 leading-relaxed">
+                  Add valid Firebase project settings to{' '}
+                  <code className="font-mono text-xs bg-amber-100 px-1.5 py-0.5 rounded">
+                    firebase-applet-config.json
+                  </code>{' '}
+                  and deploy{' '}
+                  <code className="font-mono text-xs bg-amber-100 px-1.5 py-0.5 rounded">
+                    firestore.rules
+                  </code>{' '}
+                  to sync items and requests across signed-in users.
+                </p>
+              </div>
+            </div>
+          )}
 
-        {/* Welcoming Header */}
-        <section className="bg-white border border-slate-200 rounded-2xl p-6 sm:p-8">
-          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
-            <div className="max-w-2xl">
-              <h1 className="font-display text-[clamp(1.75rem,3.2vw,2.5rem)] font-bold tracking-tight text-slate-900 text-balance">
-                Welcome to CampusConnect
+          {error && (
+            <div
+              role="alert"
+              className="mb-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-900 flex items-start gap-3"
+            >
+              <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" aria-hidden="true" />
+              <div className="flex-1 min-w-0">
+                <p className="font-semibold">{error.title}</p>
+                <p className="mt-0.5 opacity-90">{error.message}</p>
+              </div>
+              <button
+                type="button"
+                onClick={onDismissError}
+                aria-label="Dismiss authentication error"
+                className="p-1 rounded-md text-red-700 hover:bg-red-100 transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" aria-hidden="true" />
+              </button>
+            </div>
+          )}
+
+          {newRequestAlert && (
+            <div
+              role="status"
+              className="mb-6 rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-950 flex flex-wrap items-center justify-between gap-3"
+            >
+              <div className="flex items-start gap-3 min-w-0 flex-1">
+                <Bell className="w-5 h-5 text-blue-700 shrink-0 mt-0.5" aria-hidden="true" />
+                <p className="min-w-0 leading-relaxed">
+                  <span className="font-semibold">
+                    New request from {newRequestAlert.requesterName}:
+                  </span>{' '}
+                  “{newRequestAlert.description}”
+                </p>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleSelectView('shared-requests');
+                    dismissNewRequestAlert();
+                  }}
+                  className="min-h-[34px] px-3 py-1.5 rounded-lg bg-blue-700 text-white text-xs font-medium hover:bg-blue-800 transition-colors cursor-pointer"
+                >
+                  View Shared Requests
+                </button>
+                <button
+                  type="button"
+                  onClick={dismissNewRequestAlert}
+                  aria-label="Dismiss new request alert"
+                  className="p-1 rounded-md text-blue-800 hover:bg-blue-100 transition-colors cursor-pointer"
+                >
+                  <X className="w-4 h-4" aria-hidden="true" />
+                </button>
+              </div>
+            </div>
+          )}
+
+          {(statusMessage || ratingStatusMessage || paymentStatusMessage) && (
+            <div
+              role="status"
+              className="mb-6 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-950 flex items-start gap-3"
+            >
+              <CheckCircle2
+                className="w-5 h-5 text-emerald-700 shrink-0 mt-0.5"
+                aria-hidden="true"
+              />
+              <p className="flex-1 min-w-0 leading-relaxed">
+                {paymentStatusMessage || ratingStatusMessage || statusMessage}
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  clearStatusMessage();
+                  clearRatingStatusMessage();
+                  clearPaymentStatusMessage();
+                }}
+                aria-label="Dismiss confirmation"
+                className="p-1 rounded-md text-emerald-800 hover:bg-emerald-100 transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" aria-hidden="true" />
+              </button>
+            </div>
+          )}
+
+          {(itemsError || ratingsError || paymentsError) && (
+            <div
+              role="alert"
+              className="mb-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-950 flex items-start gap-3"
+            >
+              <AlertCircle className="w-5 h-5 text-red-700 shrink-0 mt-0.5" aria-hidden="true" />
+              <p className="flex-1 min-w-0 leading-relaxed">
+                {paymentsError || ratingsError || itemsError}
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  clearItemsError();
+                  clearRatingsError();
+                  clearPaymentsError();
+                }}
+                aria-label="Dismiss error"
+                className="p-1 rounded-md text-red-800 hover:bg-red-100 transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" aria-hidden="true" />
+              </button>
+            </div>
+          )}
+
+          {/* Contextual Section Header */}
+          <header className="pb-6 border-b border-slate-200/80 flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+            <div className="min-w-0 max-w-2xl">
+              <h1 className="font-display text-2xl sm:text-[28px] font-bold tracking-tight text-slate-900 leading-tight">
+                {activeSectionMeta.title}
               </h1>
-              <p className="mt-2.5 text-base sm:text-[17px] text-slate-600 leading-relaxed">
-                Borrow everyday items you forgot or share spare essentials with fellow students.
+              <p className="mt-1.5 text-sm sm:text-[15px] text-slate-600 leading-relaxed">
+                {activeSectionMeta.subtitle}
               </p>
             </div>
 
-            <div className="flex flex-wrap items-center justify-between lg:justify-end gap-3 pt-4 lg:pt-0 border-t lg:border-t-0 border-slate-100 shrink-0">
-              <div className="flex sm:hidden items-center gap-2.5 min-w-0 w-full pb-2">
-                {showAvatarImage ? (
-                  <img
-                    src={user.photoURL!}
-                    alt={displayName}
-                    referrerPolicy="no-referrer"
-                    onError={() => setAvatarFailed(true)}
-                    className="w-9 h-9 rounded-full object-cover border border-slate-200 shrink-0"
-                  />
-                ) : (
-                  <div
-                    aria-hidden="true"
-                    className="w-9 h-9 rounded-full bg-blue-50 border border-blue-200 text-blue-800 text-xs font-semibold flex items-center justify-center shrink-0"
-                  >
-                    {initials}
-                  </div>
-                )}
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-slate-800 truncate">{displayName}</p>
-                  <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                    {myAcademicMeta && (
-                      <>
-                        <span className="text-xs text-slate-600">{myAcademicMeta}</span>
-                        <span className="text-slate-300 text-xs" aria-hidden="true">
-                          ·
-                        </span>
-                      </>
-                    )}
-                    <StarRatingDisplay
-                      userId={user.uid}
-                      userName={displayName}
-                      summary={ratingSummaryByUserId[user.uid]}
-                      onOpenProfile={handleOpenProfileRatings}
-                      compact
-                    />
-                    {hasPhone && (
-                      <>
-                        <span className="text-slate-300 text-xs" aria-hidden="true">
-                          ·
-                        </span>
-                        <span className="text-xs text-slate-500 truncate">{userPhone}</span>
-                      </>
-                    )}
-                    {isAdmin && (
-                      <>
-                        <span className="text-slate-300 text-xs" aria-hidden="true">
-                          ·
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => setActiveView('admin')}
-                          className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700 hover:underline cursor-pointer"
-                        >
-                          <Shield className="w-3 h-3" aria-hidden="true" />
-                          <span>Admin Dashboard</span>
-                        </button>
-                      </>
-                    )}
-                  </div>
-                </div>
-              </div>
-
+            <div className="flex flex-wrap items-center gap-2.5 shrink-0">
               <button
                 type="button"
                 onClick={() => handleOpenNewRequest(null)}
                 disabled={!isBackendConfigured}
-                className="min-h-[44px] px-4 py-2.5 rounded-xl border border-blue-200 bg-blue-50 text-blue-800 text-sm font-medium hover:bg-blue-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 focus-visible:ring-offset-2 transition-colors duration-150 inline-flex items-center gap-2 whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-50"
+                className={`min-h-[42px] px-4 py-2 rounded-xl text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 focus-visible:ring-offset-2 transition-colors duration-150 inline-flex items-center gap-2 whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-50 ${
+                  isRequestPrimaryView
+                    ? 'bg-blue-700 text-white hover:bg-blue-800'
+                    : 'border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 hover:text-slate-900'
+                }`}
               >
                 <HandHelping className="w-4 h-4" aria-hidden="true" />
                 <span>New request</span>
@@ -1230,276 +1431,178 @@ export function MainPage({
                 type="button"
                 onClick={handleOpenAddItem}
                 disabled={!isBackendConfigured}
-                className="min-h-[44px] px-5 py-2.5 rounded-xl bg-blue-700 text-white text-sm font-medium hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 focus-visible:ring-offset-2 transition-colors duration-150 inline-flex items-center gap-2 whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-50"
+                className={`min-h-[42px] px-4 py-2 rounded-xl text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 focus-visible:ring-offset-2 transition-colors duration-150 inline-flex items-center gap-2 whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-50 ${
+                  isItemsPrimaryView
+                    ? 'bg-blue-700 text-white hover:bg-blue-800'
+                    : 'border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 hover:text-slate-900'
+                }`}
               >
                 <Plus className="w-4 h-4" aria-hidden="true" />
                 <span>Add item</span>
               </button>
             </div>
-          </div>
-        </section>
+          </header>
 
-        {/* Post-Login Student Profile Onboarding Banner */}
-        {!profileLoading && !hasCompleteProfile && isBackendConfigured && (
-          <section
-            aria-label="Student profile setup"
-            className="mt-6 bg-amber-50 border border-amber-200 rounded-2xl p-5 sm:p-6"
-          >
-            <div className="flex items-start gap-3.5 max-w-3xl">
-              <div className="w-10 h-10 rounded-xl bg-white border border-amber-200 text-amber-700 flex items-center justify-center shrink-0">
-                <UserRound className="w-5 h-5" aria-hidden="true" />
-              </div>
-              <div>
-                <h2 className="font-display text-base font-bold text-slate-900">
-                  Set up your JDCOEM student profile to add, request, or accept items
-                </h2>
-                <p className="mt-1 text-sm text-slate-700 leading-relaxed">
-                  You can browse shared items and requests now. Saving your name, branch, semester
-                  number, and phone number is required before sharing or borrowing so classmates
-                  know who they are exchanging with.
-                </p>
-              </div>
-            </div>
-
-            <form
-              onSubmit={handleInlineProfileSubmit}
-              className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 items-end"
-              noValidate
+          {/* Post-Login Student Profile Onboarding Banner */}
+          {!profileLoading && !hasCompleteProfile && isBackendConfigured && (
+            <section
+              aria-label="Student profile setup"
+              className="mt-6 bg-amber-50 border border-amber-200 rounded-2xl p-5 sm:p-6"
             >
-              <div>
-                <label
-                  htmlFor="inline-profile-name"
-                  className="block text-xs font-medium text-slate-800 mb-1"
-                >
-                  Full name
-                </label>
-                <input
-                  id="inline-profile-name"
-                  type="text"
-                  required
-                  maxLength={STUDENT_PROFILE_LIMITS.displayNameMax}
-                  value={inlineNameInput}
-                  onChange={(event) => {
-                    setInlineNameInput(event.target.value);
-                    if (profileError) onClearProfileError();
-                  }}
-                  placeholder="Your full name"
-                  disabled={savingProfile}
-                  className="w-full min-h-[44px] px-3.5 py-2 rounded-xl border border-amber-300 bg-white text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-700 focus:border-blue-700"
-                />
+              <div className="flex items-start gap-3.5 max-w-3xl">
+                <div className="w-10 h-10 rounded-xl bg-white border border-amber-200 text-amber-700 flex items-center justify-center shrink-0">
+                  <UserRound className="w-5 h-5" aria-hidden="true" />
+                </div>
+                <div>
+                  <h2 className="font-display text-base font-bold text-slate-900">
+                    Set up your JDCOEM student profile to add, request, or accept items
+                  </h2>
+                  <p className="mt-1 text-sm text-slate-700 leading-relaxed">
+                    You can browse shared items and requests now. Saving your name, branch, semester
+                    number, and phone number is required before sharing or borrowing so classmates
+                    know who they are exchanging with.
+                  </p>
+                </div>
               </div>
 
-              <div>
-                <label
-                  htmlFor="inline-profile-branch"
-                  className="block text-xs font-medium text-slate-800 mb-1"
-                >
-                  Branch
-                </label>
-                <input
-                  id="inline-profile-branch"
-                  type="text"
-                  list="inline-jdcoem-branch-list"
-                  required
-                  maxLength={STUDENT_PROFILE_LIMITS.branchMax}
-                  value={inlineBranchInput}
-                  onChange={(event) => {
-                    setInlineBranchInput(event.target.value);
-                    if (profileError) onClearProfileError();
-                  }}
-                  placeholder="e.g., CSE"
-                  disabled={savingProfile}
-                  className="w-full min-h-[44px] px-3.5 py-2 rounded-xl border border-amber-300 bg-white text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-700 focus:border-blue-700"
-                />
-                <datalist id="inline-jdcoem-branch-list">
-                  {JDCOEM_BRANCHES.map((branchOption) => (
-                    <option key={branchOption} value={branchOption} />
-                  ))}
-                </datalist>
-              </div>
+              <form
+                onSubmit={handleInlineProfileSubmit}
+                className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 items-end"
+                noValidate
+              >
+                <div>
+                  <label
+                    htmlFor="inline-profile-name"
+                    className="block text-xs font-medium text-slate-800 mb-1"
+                  >
+                    Full name
+                  </label>
+                  <input
+                    id="inline-profile-name"
+                    type="text"
+                    required
+                    maxLength={STUDENT_PROFILE_LIMITS.displayNameMax}
+                    value={inlineNameInput}
+                    onChange={(event) => {
+                      setInlineNameInput(event.target.value);
+                      if (profileError) onClearProfileError();
+                    }}
+                    placeholder="Your full name"
+                    disabled={savingProfile}
+                    className="w-full min-h-[44px] px-3.5 py-2 rounded-xl border border-amber-300 bg-white text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-700 focus:border-blue-700"
+                  />
+                </div>
 
-              <div>
-                <label
-                  htmlFor="inline-profile-semester"
-                  className="block text-xs font-medium text-slate-800 mb-1"
-                >
-                  Semester no.
-                </label>
-                <select
-                  id="inline-profile-semester"
-                  required
-                  value={inlineSemesterInput}
-                  onChange={(event) => {
-                    setInlineSemesterInput(event.target.value);
-                    if (profileError) onClearProfileError();
-                  }}
-                  disabled={savingProfile}
-                  className="w-full min-h-[44px] px-3.5 py-2 rounded-xl border border-amber-300 bg-white text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-700 focus:border-blue-700 cursor-pointer"
-                >
-                  <option value="">Select sem</option>
-                  {JDCOEM_SEMESTERS.map((semOption) => (
-                    <option key={semOption} value={semOption}>
-                      {semOption}
-                    </option>
-                  ))}
-                </select>
-              </div>
+                <div>
+                  <label
+                    htmlFor="inline-profile-branch"
+                    className="block text-xs font-medium text-slate-800 mb-1"
+                  >
+                    Branch
+                  </label>
+                  <input
+                    id="inline-profile-branch"
+                    type="text"
+                    list="inline-jdcoem-branch-list"
+                    required
+                    maxLength={STUDENT_PROFILE_LIMITS.branchMax}
+                    value={inlineBranchInput}
+                    onChange={(event) => {
+                      setInlineBranchInput(event.target.value);
+                      if (profileError) onClearProfileError();
+                    }}
+                    placeholder="e.g., CSE"
+                    disabled={savingProfile}
+                    className="w-full min-h-[44px] px-3.5 py-2 rounded-xl border border-amber-300 bg-white text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-700 focus:border-blue-700"
+                  />
+                  <datalist id="inline-jdcoem-branch-list">
+                    {JDCOEM_BRANCHES.map((branchOption) => (
+                      <option key={branchOption} value={branchOption} />
+                    ))}
+                  </datalist>
+                </div>
 
-              <div>
-                <label
-                  htmlFor="inline-profile-phone"
-                  className="block text-xs font-medium text-slate-800 mb-1"
-                >
-                  Phone number
-                </label>
-                <input
-                  id="inline-profile-phone"
-                  type="tel"
-                  autoComplete="tel"
-                  required
-                  maxLength={STUDENT_PROFILE_LIMITS.phoneMax}
-                  value={inlinePhoneInput}
-                  onChange={(event) => {
-                    setInlinePhoneInput(event.target.value);
-                    if (profileError) onClearProfileError();
-                  }}
-                  placeholder="e.g., 9876543210"
-                  disabled={savingProfile}
-                  className="w-full min-h-[44px] px-3.5 py-2 rounded-xl border border-amber-300 bg-white text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-700 focus:border-blue-700"
-                />
-              </div>
+                <div>
+                  <label
+                    htmlFor="inline-profile-semester"
+                    className="block text-xs font-medium text-slate-800 mb-1"
+                  >
+                    Semester no.
+                  </label>
+                  <select
+                    id="inline-profile-semester"
+                    required
+                    value={inlineSemesterInput}
+                    onChange={(event) => {
+                      setInlineSemesterInput(event.target.value);
+                      if (profileError) onClearProfileError();
+                    }}
+                    disabled={savingProfile}
+                    className="w-full min-h-[44px] px-3.5 py-2 rounded-xl border border-amber-300 bg-white text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-700 focus:border-blue-700 cursor-pointer"
+                  >
+                    <option value="">Select sem</option>
+                    {JDCOEM_SEMESTERS.map((semOption) => (
+                      <option key={semOption} value={semOption}>
+                        {semOption}
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
-              <button
-                type="submit"
-                disabled={savingProfile}
-                className="w-full min-h-[44px] px-4 py-2 rounded-xl bg-slate-900 text-white text-sm font-medium hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 focus-visible:ring-offset-2 inline-flex items-center justify-center gap-2 whitespace-nowrap cursor-pointer disabled:opacity-60"
-              >
-                {savingProfile ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
-                    <span>Saving...</span>
-                  </>
-                ) : (
-                  <span>Save profile</span>
-                )}
-              </button>
-            </form>
+                <div>
+                  <label
+                    htmlFor="inline-profile-phone"
+                    className="block text-xs font-medium text-slate-800 mb-1"
+                  >
+                    Phone number
+                  </label>
+                  <input
+                    id="inline-profile-phone"
+                    type="tel"
+                    autoComplete="tel"
+                    required
+                    maxLength={STUDENT_PROFILE_LIMITS.phoneMax}
+                    value={inlinePhoneInput}
+                    onChange={(event) => {
+                      setInlinePhoneInput(event.target.value);
+                      if (profileError) onClearProfileError();
+                    }}
+                    placeholder="e.g., 9876543210"
+                    disabled={savingProfile}
+                    className="w-full min-h-[44px] px-3.5 py-2 rounded-xl border border-amber-300 bg-white text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-700 focus:border-blue-700"
+                  />
+                </div>
 
-            {profileError && !pendingGateAction && !isEditProfileOpen && (
-              <p role="alert" className="mt-3 text-sm font-medium text-red-700">
-                {profileError}
-              </p>
-            )}
-          </section>
-        )}
-
-        {/* Search Bar + View Switcher */}
-        <section className="mt-8" aria-label="Search and filter shared items and requests">
-          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-            <div
-              role="tablist"
-              aria-label="CampusConnect views"
-              className="inline-flex flex-wrap items-center p-1 bg-slate-200/70 rounded-xl self-start"
-            >
-              <button
-                type="button"
-                role="tab"
-                aria-selected={activeView === 'items'}
-                onClick={() => setActiveView('items')}
-                className={`min-h-[38px] px-3.5 py-1.5 rounded-lg text-sm font-medium transition-colors duration-150 whitespace-nowrap shrink-0 cursor-pointer ${
-                  activeView === 'items'
-                    ? 'bg-white text-slate-900 shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                Shared Items{' '}
-                <span className="ml-1 text-xs text-slate-500 tabular-nums">
-                  ({allItems.length})
-                </span>
-              </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={activeView === 'shared-requests'}
-                onClick={() => setActiveView('shared-requests')}
-                className={`min-h-[38px] px-3.5 py-1.5 rounded-lg text-sm font-medium transition-colors duration-150 whitespace-nowrap shrink-0 cursor-pointer ${
-                  activeView === 'shared-requests'
-                    ? 'bg-white text-slate-900 shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                Shared Requests{' '}
-                <span className="ml-1 text-xs text-slate-500 tabular-nums">
-                  ({sharedRequests.length})
-                </span>
-              </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={activeView === 'my-requests'}
-                onClick={() => setActiveView('my-requests')}
-                className={`min-h-[38px] px-3.5 py-1.5 rounded-lg text-sm font-medium transition-colors duration-150 whitespace-nowrap shrink-0 cursor-pointer ${
-                  activeView === 'my-requests'
-                    ? 'bg-white text-slate-900 shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                My Requests{' '}
-                <span className="ml-1 text-xs text-slate-500 tabular-nums">
-                  ({myRequests.length})
-                </span>
-              </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={activeView === 'profile-reviews'}
-                onClick={() => setActiveView('profile-reviews')}
-                className={`min-h-[38px] px-3.5 py-1.5 rounded-lg text-sm font-medium transition-colors duration-150 whitespace-nowrap shrink-0 cursor-pointer ${
-                  activeView === 'profile-reviews'
-                    ? 'bg-white text-slate-900 shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                Profile Reviews{' '}
-                <span className="ml-1 text-xs text-slate-500 tabular-nums">
-                  ({ratings.length})
-                </span>
-              </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={activeView === 'transactions'}
-                onClick={() => setActiveView('transactions')}
-                className={`min-h-[38px] px-3.5 py-1.5 rounded-lg text-sm font-medium transition-colors duration-150 whitespace-nowrap shrink-0 cursor-pointer ${
-                  activeView === 'transactions'
-                    ? 'bg-white text-slate-900 shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                Transactions{' '}
-                <span className="ml-1 text-xs text-slate-500 tabular-nums">
-                  ({payments.length})
-                </span>
-              </button>
-              {isAdmin && (
                 <button
-                  type="button"
-                  role="tab"
-                  aria-selected={activeView === 'admin'}
-                  onClick={() => setActiveView('admin')}
-                  className={`min-h-[38px] px-3.5 py-1.5 rounded-lg text-sm font-medium transition-colors duration-150 whitespace-nowrap shrink-0 cursor-pointer inline-flex items-center gap-1.5 ${
-                    activeView === 'admin'
-                      ? 'bg-white text-blue-800 shadow-xs'
-                      : 'text-blue-700 hover:text-blue-900'
-                  }`}
+                  type="submit"
+                  disabled={savingProfile}
+                  className="w-full min-h-[44px] px-4 py-2 rounded-xl bg-slate-900 text-white text-sm font-medium hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 focus-visible:ring-offset-2 inline-flex items-center justify-center gap-2 whitespace-nowrap cursor-pointer disabled:opacity-60"
                 >
-                  <Shield className="w-3.5 h-3.5" aria-hidden="true" />
-                  <span>Admin Dashboard</span>
+                  {savingProfile ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
+                      <span>Saving...</span>
+                    </>
+                  ) : (
+                    <span>Save profile</span>
+                  )}
                 </button>
-              )}
-            </div>
+              </form>
 
-            <div className="relative flex-1 max-w-xl w-full">
+              {profileError && !pendingGateAction && !isEditProfileOpen && (
+                <p role="alert" className="mt-3 text-sm font-medium text-red-700">
+                  {profileError}
+                </p>
+              )}
+            </section>
+          )}
+
+          {/* Search & Listing Filter Toolbar */}
+          <section
+            className="mt-6 flex flex-col md:flex-row md:items-center justify-between gap-3.5"
+            aria-label="Search and filter"
+          >
+            <div className="relative flex-1 max-w-lg w-full">
               <label htmlFor="campus-search" className="sr-only">
                 Search shared items, requests, reviews, or transactions
               </label>
@@ -1524,7 +1627,7 @@ export function MainPage({
                           ? 'Filter items or requests by title, student name, or UID...'
                           : 'Search requests by description, student, or status...'
                 }
-                className="w-full min-h-[44px] pl-10 pr-20 py-2.5 rounded-xl border border-slate-300 bg-white text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-700 focus:border-blue-700"
+                className="w-full min-h-[42px] pl-10 pr-20 py-2 rounded-xl border border-slate-300 bg-white text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-700 focus:border-blue-700"
               />
               {searchQuery.length > 0 && (
                 <button
@@ -1538,25 +1641,13 @@ export function MainPage({
                 </button>
               )}
             </div>
-          </div>
-
-          <div className="mt-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <p className="text-xs sm:text-sm text-slate-500">
-              {activeView === 'items'
-                ? 'Borrow shared essentials or buy permanent-sale items from JDCOEM students'
-                : activeView === 'shared-requests'
-                  ? 'Shared requests from all signed-in users · Accept an Open request to help a student'
-                  : activeView === 'my-requests'
-                    ? 'Requests created by you · Track Open, Accepted, and Fulfilled status'
-                    : activeView === 'transactions'
-                      ? 'Backend-verified purchase and sale receipts across Campus UPI and Campus Direct Pay'
-                      : activeView === 'admin'
-                        ? 'Administrator tools · Moderate any shared item or request and manage admin UIDs'
-                        : 'Public student profiles and exchange ratings visible to all JDCOEM students'}
-            </p>
 
             {activeView === 'items' && (
-              <div className="inline-flex items-center p-1 bg-slate-200/70 rounded-xl self-start sm:self-auto">
+              <div
+                role="group"
+                aria-label="Filter items by listing type"
+                className="inline-flex items-center p-1 bg-slate-200/70 rounded-xl self-start md:self-auto"
+              >
                 {(
                   [
                     { id: 'all', label: 'All Items' },
@@ -1567,8 +1658,9 @@ export function MainPage({
                   <button
                     key={option.id}
                     type="button"
+                    aria-pressed={itemListingFilter === option.id}
                     onClick={() => setItemListingFilter(option.id)}
-                    className={`min-h-[34px] px-3 py-1 rounded-lg text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
+                    className={`min-h-[34px] px-3 py-1 rounded-lg text-xs font-medium transition-colors cursor-pointer whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 ${
                       itemListingFilter === option.id
                         ? 'bg-white text-slate-900 shadow-xs'
                         : 'text-slate-600 hover:text-slate-900'
@@ -1579,418 +1671,441 @@ export function MainPage({
                 ))}
               </div>
             )}
-          </div>
-        </section>
+          </section>
 
-        {/* Active View Content */}
-        <section className="mt-5" aria-label="CampusConnect community list">
-          {activeView === 'admin' && isAdmin ? (
-            <AdminDashboardPanel
-              currentUserId={user.uid}
-              currentUserEmail={user.email}
-              items={allItems}
-              requests={sharedRequests}
-              publicProfiles={publicProfiles}
-              publicProfilesById={publicProfilesById}
-              adminUids={adminUids}
-              adminsLoading={adminsLoading}
-              managingAdminUid={managingAdminUid}
-              adminError={adminError}
-              adminStatusMessage={adminStatusMessage}
-              deletingId={deletingId}
-              searchQuery={searchQuery}
-              onRequestDelete={setDeleteTarget}
-              onGrantAdmin={grantAdmin}
-              onRevokeAdmin={revokeAdmin}
-              onClearAdminMessages={clearAdminMessages}
-              onClearSearch={handleClearSearch}
-            />
-          ) : activeView === 'profile-reviews' ? (
-            <ProfileReviewsPanel
-              selectedProfile={selectedProfile}
-              availableProfiles={availableProfiles}
-              publicProfilesById={publicProfilesById}
-              ratingSummaryByUserId={ratingSummaryByUserId}
-              currentUserId={user.uid}
-              searchQuery={searchQuery}
-              loading={ratingsLoading}
-              onSelectProfile={(id, name) => setProfileRatingTarget({ userId: id, displayName: name })}
-              onEditRating={handleOpenEditRating}
-              onOpenEditProfile={() => {
-                onClearProfileError();
-                setIsEditProfileOpen(true);
-              }}
-              onClearSearch={handleClearSearch}
-            />
-          ) : activeView === 'transactions' ? (
-            <TransactionsPanel
-              payments={payments}
-              currentUserId={user.uid}
-              searchQuery={searchQuery}
-              loading={paymentsLoading}
-              onClearSearch={handleClearSearch}
-            />
-          ) : loading ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-              {Array.from({ length: 6 }).map((_, index) => (
-                <div
-                  key={index}
-                  className="bg-white border border-slate-200 rounded-xl overflow-hidden animate-pulse"
-                >
-                  <div className="aspect-[4/3] w-full bg-slate-200" />
-                  <div className="p-5 space-y-3">
-                    <div className="h-3 w-32 bg-slate-200 rounded" />
-                    <div className="h-5 w-3/4 bg-slate-200 rounded" />
-                    <div className="h-3.5 w-full bg-slate-100 rounded" />
+          {/* Active View Content */}
+          <section className="mt-6" aria-label="CampusConnect community list">
+            {activeView === 'admin' && isAdmin ? (
+              <AdminDashboardPanel
+                currentUserId={user.uid}
+                currentUserEmail={user.email}
+                items={allItems}
+                requests={sharedRequests}
+                publicProfiles={publicProfiles}
+                publicProfilesById={publicProfilesById}
+                adminUids={adminUids}
+                adminsLoading={adminsLoading}
+                managingAdminUid={managingAdminUid}
+                adminError={adminError}
+                adminStatusMessage={adminStatusMessage}
+                deletingId={deletingId}
+                searchQuery={searchQuery}
+                onRequestDelete={setDeleteTarget}
+                onGrantAdmin={grantAdmin}
+                onRevokeAdmin={revokeAdmin}
+                onClearAdminMessages={clearAdminMessages}
+                onClearSearch={handleClearSearch}
+              />
+            ) : activeView === 'profile-reviews' ? (
+              <ProfileReviewsPanel
+                selectedProfile={selectedProfile}
+                availableProfiles={availableProfiles}
+                publicProfilesById={publicProfilesById}
+                ratingSummaryByUserId={ratingSummaryByUserId}
+                currentUserId={user.uid}
+                searchQuery={searchQuery}
+                loading={ratingsLoading}
+                onSelectProfile={(id, name) =>
+                  setProfileRatingTarget({ userId: id, displayName: name })
+                }
+                onEditRating={handleOpenEditRating}
+                onOpenEditProfile={() => {
+                  onClearProfileError();
+                  setIsEditProfileOpen(true);
+                }}
+                onClearSearch={handleClearSearch}
+              />
+            ) : activeView === 'transactions' ? (
+              <TransactionsPanel
+                payments={payments}
+                currentUserId={user.uid}
+                searchQuery={searchQuery}
+                loading={paymentsLoading}
+                onClearSearch={handleClearSearch}
+              />
+            ) : loading ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+                {Array.from({ length: 6 }).map((_, index) => (
+                  <div
+                    key={index}
+                    className="bg-white border border-slate-200 rounded-2xl overflow-hidden animate-pulse"
+                  >
+                    <div className="aspect-[4/3] w-full bg-slate-200" />
+                    <div className="p-6 space-y-3">
+                      <div className="h-3 w-32 bg-slate-200 rounded" />
+                      <div className="h-5 w-3/4 bg-slate-200 rounded" />
+                      <div className="h-3.5 w-full bg-slate-100 rounded" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : activeView === 'shared-requests' ? (
+              renderRequestCards(filteredSharedRequests, true)
+            ) : activeView === 'my-requests' ? (
+              renderRequestCards(filteredMyRequests, false)
+            ) : filteredAllItems.length === 0 ? (
+              allItems.length === 0 ? (
+                <div className="bg-white border border-slate-200 rounded-2xl p-10 text-center max-w-xl mx-auto mt-6">
+                  <div className="w-11 h-11 rounded-xl bg-blue-50 border border-blue-200 text-blue-700 flex items-center justify-center mx-auto">
+                    <Package className="w-5 h-5" aria-hidden="true" />
+                  </div>
+                  <h2 className="mt-4 font-display text-lg font-semibold text-slate-900">
+                    No items listed yet
+                  </h2>
+                  <p className="mt-2 text-sm text-slate-600 leading-relaxed">
+                    Real listings shared by JDCOEM students appear here. Share an item for lending
+                    or list one for permanent sale to get started.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={handleOpenAddItem}
+                    disabled={!isBackendConfigured}
+                    className="mt-6 min-h-[42px] px-5 py-2 rounded-xl bg-blue-700 text-white text-sm font-medium hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 focus-visible:ring-offset-2 inline-flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                  >
+                    <Plus className="w-4 h-4" aria-hidden="true" />
+                    <span>Add item</span>
+                  </button>
+                </div>
+              ) : (
+                <div className="bg-white border border-slate-200 rounded-2xl p-10 text-center max-w-xl mx-auto mt-6">
+                  <div className="w-11 h-11 rounded-xl bg-slate-100 text-slate-600 flex items-center justify-center mx-auto">
+                    <Search className="w-5 h-5" aria-hidden="true" />
+                  </div>
+                  <h2 className="mt-4 font-display text-lg font-semibold text-slate-900">
+                    No matching items found
+                  </h2>
+                  <p className="mt-2 text-sm text-slate-600 leading-relaxed">
+                    {normalizedQuery ? (
+                      <>
+                        Nothing matched “
+                        <span className="font-medium text-slate-900">{searchQuery.trim()}</span>”.
+                        Try clearing your search or switching listing filters.
+                      </>
+                    ) : (
+                      'No items have been listed under this filter yet.'
+                    )}
+                  </p>
+                  <div className="mt-6 flex items-center justify-center gap-3">
+                    {normalizedQuery && (
+                      <button
+                        type="button"
+                        onClick={handleClearSearch}
+                        className="min-h-[40px] px-4 py-2 rounded-xl border border-slate-300 bg-white text-sm font-medium text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 cursor-pointer"
+                      >
+                        Clear search
+                      </button>
+                    )}
+                    {itemListingFilter !== 'all' && (
+                      <button
+                        type="button"
+                        onClick={() => setItemListingFilter('all')}
+                        className="min-h-[40px] px-4 py-2 rounded-xl bg-blue-700 text-white text-sm font-medium hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 cursor-pointer"
+                      >
+                        Show all items
+                      </button>
+                    )}
                   </div>
                 </div>
-              ))}
-            </div>
-          ) : activeView === 'shared-requests' ? (
-            renderRequestCards(filteredSharedRequests, true)
-          ) : activeView === 'my-requests' ? (
-            renderRequestCards(filteredMyRequests, false)
-          ) : filteredAllItems.length === 0 ? (
-            allItems.length === 0 ? (
-              <div className="bg-white border border-slate-200 rounded-2xl p-10 text-center max-w-xl mx-auto mt-6">
-                <div className="w-11 h-11 rounded-xl bg-blue-50 border border-blue-200 text-blue-700 flex items-center justify-center mx-auto">
-                  <Package className="w-5 h-5" aria-hidden="true" />
-                </div>
-                <h2 className="mt-4 font-display text-lg font-semibold text-slate-900">
-                  No items listed yet
-                </h2>
-                <p className="mt-2 text-sm text-slate-600 leading-relaxed">
-                  Real listings shared by JDCOEM students appear here. Share an item for lending or
-                  list one for permanent sale to get started.
-                </p>
-                <button
-                  type="button"
-                  onClick={handleOpenAddItem}
-                  disabled={!isBackendConfigured}
-                  className="mt-6 min-h-[42px] px-5 py-2 rounded-xl bg-blue-700 text-white text-sm font-medium hover:bg-blue-800 inline-flex items-center gap-2 cursor-pointer disabled:opacity-50"
-                >
-                  <Plus className="w-4 h-4" aria-hidden="true" />
-                  <span>Add item</span>
-                </button>
-              </div>
+              )
             ) : (
-              <div className="bg-white border border-slate-200 rounded-2xl p-10 text-center max-w-xl mx-auto mt-6">
-                <div className="w-11 h-11 rounded-xl bg-slate-100 text-slate-600 flex items-center justify-center mx-auto">
-                  <Search className="w-5 h-5" aria-hidden="true" />
-                </div>
-                <h2 className="mt-4 font-display text-lg font-semibold text-slate-900">
-                  No matching items found
-                </h2>
-                <p className="mt-2 text-sm text-slate-600 leading-relaxed">
-                  {normalizedQuery ? (
-                    <>
-                      Nothing matched “
-                      <span className="font-medium text-slate-900">{searchQuery.trim()}</span>”. Try
-                      clearing your search or switching listing filters.
-                    </>
-                  ) : (
-                    'No items have been listed under this filter yet.'
-                  )}
-                </p>
-                <div className="mt-6 flex items-center justify-center gap-3">
-                  {normalizedQuery && (
-                    <button
-                      type="button"
-                      onClick={handleClearSearch}
-                      className="min-h-[40px] px-4 py-2 rounded-xl border border-slate-300 bg-white text-sm font-medium text-slate-700 hover:bg-slate-50 cursor-pointer"
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+                {filteredAllItems.map((item) => {
+                  const isOwner = item.authorId === user.uid;
+                  const canDelete = isOwner || isAdmin;
+                  const isDeletingThis = deletingId === item.id;
+                  const isPermanentSale = item.listingType === 'sell';
+                  const isSold = item.status === 'Sold';
+                  const authorPublic = publicProfilesById[item.authorId];
+                  const authorDisplay = authorPublic?.displayName || item.authorName;
+                  const authorAcademic = formatBranchSemester(
+                    authorPublic?.branch,
+                    authorPublic?.semester
+                  );
+                  const myLinkedAcceptedExchanges = !isPermanentSale
+                    ? sharedRequests.filter(
+                        (req) =>
+                          req.itemId === item.id &&
+                          req.status === 'Accepted' &&
+                          (req.requesterId === user.uid || req.acceptedById === user.uid)
+                      )
+                    : [];
+                  const myLinkedUnratedFulfilledExchange = !isPermanentSale
+                    ? sharedRequests.find(
+                        (req) =>
+                          req.itemId === item.id &&
+                          req.status === 'Fulfilled' &&
+                          req.borrowerFulfilled &&
+                          req.lenderFulfilled &&
+                          Boolean(req.acceptedById) &&
+                          (req.requesterId === user.uid || req.acceptedById === user.uid) &&
+                          !getRatingForRequestByUser(req.id, user.uid)
+                      )
+                    : undefined;
+
+                  return (
+                    <article
+                      key={item.id}
+                      className="bg-white border border-slate-200 rounded-2xl overflow-hidden flex flex-col justify-between transition-colors duration-150 hover:border-slate-300"
                     >
-                      Clear search
-                    </button>
-                  )}
-                  {itemListingFilter !== 'all' && (
-                    <button
-                      type="button"
-                      onClick={() => setItemListingFilter('all')}
-                      className="min-h-[40px] px-4 py-2 rounded-xl bg-blue-700 text-white text-sm font-medium hover:bg-blue-800 cursor-pointer"
-                    >
-                      Show all items
-                    </button>
-                  )}
-                </div>
-              </div>
-            )
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-              {filteredAllItems.map((item) => {
-                const isOwner = item.authorId === user.uid;
-                const canDelete = isOwner || isAdmin;
-                const isDeletingThis = deletingId === item.id;
-                const isPermanentSale = item.listingType === 'sell';
-                const isSold = item.status === 'Sold';
-                const authorPublic = publicProfilesById[item.authorId];
-                const authorDisplay = authorPublic?.displayName || item.authorName;
-                const authorAcademic = formatBranchSemester(
-                  authorPublic?.branch,
-                  authorPublic?.semester
-                );
-                const myLinkedAcceptedExchanges = !isPermanentSale
-                  ? sharedRequests.filter(
-                      (req) =>
-                        req.itemId === item.id &&
-                        req.status === 'Accepted' &&
-                        (req.requesterId === user.uid || req.acceptedById === user.uid)
-                    )
-                  : [];
-                const myLinkedUnratedFulfilledExchange = !isPermanentSale
-                  ? sharedRequests.find(
-                      (req) =>
-                        req.itemId === item.id &&
-                        req.status === 'Fulfilled' &&
-                        req.borrowerFulfilled &&
-                        req.lenderFulfilled &&
-                        Boolean(req.acceptedById) &&
-                        (req.requesterId === user.uid || req.acceptedById === user.uid) &&
-                        !getRatingForRequestByUser(req.id, user.uid)
-                    )
-                  : undefined;
+                      <div>
+                        <ItemPhoto src={item.photoUrl} alt={item.title} />
 
-                return (
-                  <article
-                    key={item.id}
-                    className="bg-white border border-slate-200 rounded-xl overflow-hidden flex flex-col justify-between transition-colors duration-150 hover:border-slate-300"
-                  >
-                    <div>
-                      <ItemPhoto src={item.photoUrl} alt={item.title} />
-
-                      <div className="p-5">
-                        <p className="text-xs font-medium text-slate-500 flex flex-wrap items-center gap-x-2 gap-y-1">
-                          <span className={isPermanentSale ? 'text-emerald-700 font-semibold' : 'text-blue-700'}>
-                            {isPermanentSale ? 'Permanent Sale' : item.category}
-                          </span>
-                          <span aria-hidden="true">·</span>
-                          <span className={isPermanentSale ? 'font-semibold text-slate-900 tabular-nums' : ''}>
-                            {isPermanentSale ? formatInr(item.price) : 'Free borrow'}
-                          </span>
-                          <span aria-hidden="true">·</span>
-                          <span className={isSold ? 'font-semibold text-amber-700' : ''}>
-                            {item.status}
-                          </span>
-                          {isOwner && (
-                            <>
-                              <span aria-hidden="true">·</span>
-                              <span className="text-slate-700">Your item</span>
-                            </>
-                          )}
-                        </p>
-
-                        <h2 className="mt-2 font-display text-lg font-semibold text-slate-900 leading-snug">
-                          {item.title}
-                        </h2>
-
-                        <p className="mt-2 text-sm text-slate-600 leading-relaxed line-clamp-3">
-                          {item.description}
-                        </p>
-
-                        {isPermanentSale && isSold && (
-                          <p className="mt-2.5 text-xs font-medium text-emerald-800">
-                            Sold to{' '}
-                            {item.soldToId === user.uid
-                              ? 'You'
-                              : item.soldToName || 'a fellow student'}
-                          </p>
-                        )}
-
-                        {myLinkedAcceptedExchanges.length > 0 && (
-                          <div className="mt-3.5 space-y-2">
-                            {myLinkedAcceptedExchanges.map((exchangeReq) => {
-                              const isBorrower = exchangeReq.requesterId === user.uid;
-                              const userConfirmed = isBorrower
-                                ? exchangeReq.borrowerFulfilled
-                                : exchangeReq.lenderFulfilled;
-                              const otherConfirmed = isBorrower
-                                ? exchangeReq.lenderFulfilled
-                                : exchangeReq.borrowerFulfilled;
-                              const otherName = isBorrower
-                                ? publicProfilesById[exchangeReq.acceptedById || '']?.displayName ||
-                                  exchangeReq.acceptedByName ||
-                                  'Lender'
-                                : publicProfilesById[exchangeReq.requesterId]?.displayName ||
-                                  exchangeReq.requesterName;
-                              const isUpdatingExchange = updatingRequestId === exchangeReq.id;
-
-                              return (
-                                <div
-                                  key={exchangeReq.id}
-                                  className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-2 text-xs"
-                                >
-                                  <div className="flex items-center justify-between gap-2">
-                                    <span className="font-semibold text-slate-900 truncate">
-                                      Active exchange with {otherName}
-                                    </span>
-                                    <span className="text-slate-500 shrink-0">
-                                      {isBorrower ? 'You: Borrower' : 'You: Lender'}
-                                    </span>
-                                  </div>
-                                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                                    <span
-                                      className={`inline-flex items-center gap-1 ${
-                                        exchangeReq.borrowerFulfilled
-                                          ? 'text-emerald-700 font-medium'
-                                          : 'text-slate-500'
-                                      }`}
-                                    >
-                                      {exchangeReq.borrowerFulfilled ? (
-                                        <CheckCircle2 className="w-3 h-3" aria-hidden="true" />
-                                      ) : (
-                                        <Clock className="w-3 h-3" aria-hidden="true" />
-                                      )}
-                                      <span>Borrower</span>
-                                    </span>
-                                    <span
-                                      className={`inline-flex items-center gap-1 ${
-                                        exchangeReq.lenderFulfilled
-                                          ? 'text-emerald-700 font-medium'
-                                          : 'text-slate-500'
-                                      }`}
-                                    >
-                                      {exchangeReq.lenderFulfilled ? (
-                                        <CheckCircle2 className="w-3 h-3" aria-hidden="true" />
-                                      ) : (
-                                        <Clock className="w-3 h-3" aria-hidden="true" />
-                                      )}
-                                      <span>Lender</span>
-                                    </span>
-                                  </div>
-                                  {!userConfirmed ? (
-                                    <button
-                                      type="button"
-                                      onClick={() => void fulfillRequest(exchangeReq)}
-                                      disabled={isUpdatingExchange || !isBackendConfigured}
-                                      className="w-full min-h-[34px] px-3 py-1.5 rounded-lg bg-emerald-700 text-white text-xs font-medium hover:bg-emerald-800 transition-colors inline-flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
-                                    >
-                                      {isUpdatingExchange ? (
-                                        <>
-                                          <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden="true" />
-                                          <span>Updating...</span>
-                                        </>
-                                      ) : (
-                                        <>
-                                          <CheckCircle2 className="w-3.5 h-3.5" aria-hidden="true" />
-                                          <span>
-                                            {otherConfirmed
-                                              ? 'Mark Fulfilled (complete exchange)'
-                                              : 'Mark Fulfilled'}
-                                          </span>
-                                        </>
-                                      )}
-                                    </button>
-                                  ) : (
-                                    <p className="text-emerald-700 font-medium">
-                                      You marked Fulfilled · Waiting for{' '}
-                                      {isBorrower ? 'lender' : 'borrower'} before ratings unlock.
-                                    </p>
-                                  )}
-                                </div>
-                              );
-                            })}
-                          </div>
-                        )}
-
-                        {myLinkedUnratedFulfilledExchange && (
-                          <div className="mt-3 rounded-lg border border-blue-200 bg-blue-50/70 p-3 flex items-center justify-between gap-2 text-xs">
-                            <span className="font-medium text-blue-950">
-                              Exchange fulfilled · Ratings unlocked
+                        <div className="p-5 sm:p-6">
+                          <p className="text-xs font-medium text-slate-500 flex flex-wrap items-center gap-x-2 gap-y-1">
+                            <span
+                              className={
+                                isPermanentSale
+                                  ? 'text-emerald-700 font-semibold'
+                                  : 'text-blue-700 font-medium'
+                              }
+                            >
+                              {isPermanentSale ? 'Permanent Sale' : item.category}
                             </span>
+                            <span aria-hidden="true">·</span>
+                            <span
+                              className={
+                                isPermanentSale ? 'font-semibold text-slate-900 tabular-nums' : ''
+                              }
+                            >
+                              {isPermanentSale ? formatInr(item.price) : 'Free borrow'}
+                            </span>
+                            <span aria-hidden="true">·</span>
+                            <span className={isSold ? 'font-semibold text-amber-700' : ''}>
+                              {item.status}
+                            </span>
+                            {isOwner && (
+                              <>
+                                <span aria-hidden="true">·</span>
+                                <span className="text-slate-700">Your item</span>
+                              </>
+                            )}
+                          </p>
+
+                          <h2 className="mt-2 font-display text-lg font-semibold text-slate-900 leading-snug">
+                            {item.title}
+                          </h2>
+
+                          <p className="mt-2 text-sm text-slate-600 leading-relaxed line-clamp-3">
+                            {item.description}
+                          </p>
+
+                          {isPermanentSale && isSold && (
+                            <p className="mt-3 text-xs font-medium text-emerald-800">
+                              Sold to{' '}
+                              {item.soldToId === user.uid
+                                ? 'You'
+                                : item.soldToName || 'a fellow student'}
+                            </p>
+                          )}
+
+                          {myLinkedAcceptedExchanges.length > 0 && (
+                            <div className="mt-4 pt-4 border-t border-slate-100 space-y-3.5">
+                              {myLinkedAcceptedExchanges.map((exchangeReq, index) => {
+                                const isBorrower = exchangeReq.requesterId === user.uid;
+                                const userConfirmed = isBorrower
+                                  ? exchangeReq.borrowerFulfilled
+                                  : exchangeReq.lenderFulfilled;
+                                const otherConfirmed = isBorrower
+                                  ? exchangeReq.lenderFulfilled
+                                  : exchangeReq.borrowerFulfilled;
+                                const otherName = isBorrower
+                                  ? publicProfilesById[exchangeReq.acceptedById || '']
+                                      ?.displayName ||
+                                    exchangeReq.acceptedByName ||
+                                    'Lender'
+                                  : publicProfilesById[exchangeReq.requesterId]?.displayName ||
+                                    exchangeReq.requesterName;
+                                const isUpdatingExchange = updatingRequestId === exchangeReq.id;
+
+                                return (
+                                  <div
+                                    key={exchangeReq.id}
+                                    className={`space-y-2 text-xs ${
+                                      index > 0 ? 'pt-3 border-t border-slate-100' : ''
+                                    }`}
+                                  >
+                                    <div className="flex items-center justify-between gap-2">
+                                      <span className="font-semibold text-slate-900 truncate">
+                                        Active exchange with {otherName}
+                                      </span>
+                                      <span className="text-slate-500 shrink-0">
+                                        {isBorrower ? 'You: Borrower' : 'You: Lender'}
+                                      </span>
+                                    </div>
+                                    <div className="flex flex-wrap items-center gap-x-3.5 gap-y-1">
+                                      <span
+                                        className={`inline-flex items-center gap-1 ${
+                                          exchangeReq.borrowerFulfilled
+                                            ? 'text-emerald-700 font-medium'
+                                            : 'text-slate-500'
+                                        }`}
+                                      >
+                                        {exchangeReq.borrowerFulfilled ? (
+                                          <CheckCircle2 className="w-3.5 h-3.5" aria-hidden="true" />
+                                        ) : (
+                                          <Clock className="w-3.5 h-3.5" aria-hidden="true" />
+                                        )}
+                                        <span>Borrower</span>
+                                      </span>
+                                      <span
+                                        className={`inline-flex items-center gap-1 ${
+                                          exchangeReq.lenderFulfilled
+                                            ? 'text-emerald-700 font-medium'
+                                            : 'text-slate-500'
+                                        }`}
+                                      >
+                                        {exchangeReq.lenderFulfilled ? (
+                                          <CheckCircle2 className="w-3.5 h-3.5" aria-hidden="true" />
+                                        ) : (
+                                          <Clock className="w-3.5 h-3.5" aria-hidden="true" />
+                                        )}
+                                        <span>Lender</span>
+                                      </span>
+                                    </div>
+                                    {!userConfirmed ? (
+                                      <button
+                                        type="button"
+                                        onClick={() => void fulfillRequest(exchangeReq)}
+                                        disabled={isUpdatingExchange || !isBackendConfigured}
+                                        className="w-full min-h-[36px] px-3 py-1.5 rounded-xl bg-emerald-700 text-white text-xs font-medium hover:bg-emerald-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-700 transition-colors inline-flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
+                                      >
+                                        {isUpdatingExchange ? (
+                                          <>
+                                            <Loader2
+                                              className="w-3.5 h-3.5 animate-spin"
+                                              aria-hidden="true"
+                                            />
+                                            <span>Updating...</span>
+                                          </>
+                                        ) : (
+                                          <>
+                                            <CheckCircle2
+                                              className="w-3.5 h-3.5"
+                                              aria-hidden="true"
+                                            />
+                                            <span>
+                                              {otherConfirmed
+                                                ? 'Mark Fulfilled (complete exchange)'
+                                                : 'Mark Fulfilled'}
+                                            </span>
+                                          </>
+                                        )}
+                                      </button>
+                                    ) : (
+                                      <p className="text-emerald-700 font-medium">
+                                        You marked Fulfilled · Waiting for{' '}
+                                        {isBorrower ? 'lender' : 'borrower'} before ratings unlock.
+                                      </p>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+
+                          {myLinkedUnratedFulfilledExchange && (
+                            <div className="mt-4 pt-3.5 border-t border-slate-100 flex items-center justify-between gap-3 text-xs">
+                              <span className="font-medium text-emerald-700">
+                                Exchange fulfilled · Ratings unlocked
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  handleOpenCreateRating(myLinkedUnratedFulfilledExchange)
+                                }
+                                disabled={!isBackendConfigured}
+                                className="min-h-[34px] px-3 py-1 rounded-lg bg-blue-700 text-white text-xs font-medium hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 inline-flex items-center gap-1 shrink-0 cursor-pointer disabled:opacity-50"
+                              >
+                                <Star className="w-3 h-3" aria-hidden="true" />
+                                <span>
+                                  {myLinkedUnratedFulfilledExchange.requesterId === user.uid
+                                    ? 'Rate lender'
+                                    : 'Rate borrower'}
+                                </span>
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="px-5 sm:px-6 py-4 bg-slate-50/50 border-t border-slate-100 flex flex-wrap items-end justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-xs font-medium text-slate-700 truncate">
+                            {isOwner
+                              ? isPermanentSale
+                                ? 'Listed by You'
+                                : 'Added by You'
+                              : isPermanentSale
+                                ? `Listed by ${authorDisplay}`
+                                : `Added by ${authorDisplay}`}
+                          </p>
+                          {authorAcademic && (
+                            <p className="text-[11px] text-slate-500 truncate mt-0.5">
+                              {authorAcademic}
+                            </p>
+                          )}
+                          <StarRatingDisplay
+                            userId={item.authorId}
+                            userName={isOwner ? displayName : authorDisplay}
+                            summary={ratingSummaryByUserId[item.authorId]}
+                            onOpenProfile={handleOpenProfileRatings}
+                          />
+                          <p className="text-xs text-slate-500 flex items-center gap-1 truncate mt-0.5 tabular-nums">
+                            <Phone className="w-3 h-3 shrink-0" aria-hidden="true" />
+                            <span>{item.authorPhone}</span>
+                          </p>
+                        </div>
+
+                        <div className="flex items-center gap-2 shrink-0">
+                          {!isOwner && isPermanentSale && !isSold && (
                             <button
                               type="button"
-                              onClick={() => handleOpenCreateRating(myLinkedUnratedFulfilledExchange)}
+                              onClick={() => handleOpenBuyItem(item)}
                               disabled={!isBackendConfigured}
-                              className="min-h-[32px] px-2.5 py-1 rounded-lg bg-blue-700 text-white text-xs font-medium hover:bg-blue-800 inline-flex items-center gap-1 shrink-0 cursor-pointer disabled:opacity-50"
+                              className="min-h-[38px] px-3.5 py-1.5 rounded-xl bg-emerald-700 text-white text-xs font-medium hover:bg-emerald-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-700 transition-colors inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50 tabular-nums"
                             >
-                              <Star className="w-3 h-3" aria-hidden="true" />
-                              <span>
-                                {myLinkedUnratedFulfilledExchange.requesterId === user.uid
-                                  ? 'Rate lender'
-                                  : 'Rate borrower'}
-                              </span>
+                              <ShoppingBag className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                              <span>Buy · {formatInr(item.price)}</span>
                             </button>
-                          </div>
-                        )}
+                          )}
+                          {!isOwner && !isPermanentSale && (
+                            <button
+                              type="button"
+                              onClick={() => handleOpenNewRequest(item)}
+                              disabled={!isBackendConfigured}
+                              className="min-h-[38px] px-3.5 py-1.5 rounded-xl bg-blue-700 text-white text-xs font-medium hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 transition-colors cursor-pointer disabled:opacity-50"
+                            >
+                              Request
+                            </button>
+                          )}
+                          {canDelete && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setDeleteTarget({
+                                  id: item.id,
+                                  title: item.title,
+                                  kind: 'item',
+                                })
+                              }
+                              disabled={isDeletingThis}
+                              aria-label={`Delete ${item.title}`}
+                              className="min-h-[38px] px-3 py-1.5 rounded-xl border border-slate-200 bg-white text-xs font-medium text-slate-600 hover:border-red-200 hover:bg-red-50 hover:text-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 transition-colors inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
+                              <span>Delete</span>
+                            </button>
+                          )}
+                        </div>
                       </div>
-                    </div>
-
-                    <div className="px-5 py-3.5 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="text-xs font-medium text-slate-700 truncate">
-                          {isOwner
-                            ? isPermanentSale
-                              ? 'Listed by You'
-                              : 'Added by You'
-                            : isPermanentSale
-                              ? `Listed by ${authorDisplay}`
-                              : `Added by ${authorDisplay}`}
-                        </p>
-                        {authorAcademic && (
-                          <p className="text-[11px] text-slate-500 truncate mt-0.5">
-                            {authorAcademic}
-                          </p>
-                        )}
-                        <StarRatingDisplay
-                          userId={item.authorId}
-                          userName={isOwner ? displayName : authorDisplay}
-                          summary={ratingSummaryByUserId[item.authorId]}
-                          onOpenProfile={handleOpenProfileRatings}
-                        />
-                        <p className="text-xs text-slate-500 flex items-center gap-1 truncate mt-0.5">
-                          <Phone className="w-3 h-3 shrink-0" aria-hidden="true" />
-                          <span>{item.authorPhone}</span>
-                        </p>
-                      </div>
-
-                      <div className="flex items-center gap-2 shrink-0">
-                        {!isOwner && isPermanentSale && !isSold && (
-                          <button
-                            type="button"
-                            onClick={() => handleOpenBuyItem(item)}
-                            disabled={!isBackendConfigured}
-                            className="min-h-[38px] px-3.5 py-1.5 rounded-lg bg-emerald-700 text-white text-xs font-medium hover:bg-emerald-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-700 transition-colors inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50 tabular-nums"
-                          >
-                            <ShoppingBag className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-                            <span>Buy · {formatInr(item.price)}</span>
-                          </button>
-                        )}
-                        {!isOwner && !isPermanentSale && (
-                          <button
-                            type="button"
-                            onClick={() => handleOpenNewRequest(item)}
-                            disabled={!isBackendConfigured}
-                            className="min-h-[36px] px-3 py-1.5 rounded-lg bg-blue-50 border border-blue-200 text-blue-800 text-xs font-medium hover:bg-blue-100 transition-colors cursor-pointer disabled:opacity-50"
-                          >
-                            Request
-                          </button>
-                        )}
-                        {canDelete && (
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setDeleteTarget({
-                                id: item.id,
-                                title: item.title,
-                                kind: 'item',
-                              })
-                            }
-                            disabled={isDeletingThis}
-                            aria-label={`Delete ${item.title}`}
-                            className="min-h-[36px] px-3 py-1.5 rounded-lg border border-red-200 bg-white text-xs font-medium text-red-700 hover:bg-red-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 transition-colors inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
-                            <span>Delete</span>
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  </article>
-                );
-              })}
-            </div>
-          )}
-        </section>
-      </main>
+                    </article>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+        </main>
+      </div>
 
       <StudentProfileModal
         isOpen={Boolean(pendingGateAction) || isEditProfileOpen}
