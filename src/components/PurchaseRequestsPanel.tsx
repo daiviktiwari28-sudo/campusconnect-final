@@ -4,6 +4,7 @@ import {
   Clock,
   Loader2,
   Lock,
+  Pencil,
   Phone,
   Search,
   ShoppingBag,
@@ -13,9 +14,11 @@ import {
 import {
   PAYMENT_LIMITS,
   formatInr,
+  type ExchangeRating,
   type PurchaseRequest,
   type PurchaseRequestStatus,
 } from '../data/campusItems';
+import { formatRemainingEditWindow, isRatingEditable } from '../hooks/useRatings';
 
 interface PurchaseRequestsPanelProps {
   requests: PurchaseRequest[];
@@ -24,8 +27,11 @@ interface PurchaseRequestsPanelProps {
   loading: boolean;
   updatingId: string | null;
   isBackendConfigured: boolean;
+  getRatingForRequestByUser: (requestId: string, raterId: string) => ExchangeRating | undefined;
   onConfirmPayment: (req: PurchaseRequest, negotiatedFinalAmount?: number) => Promise<boolean>;
   onCancelRequest: (req: PurchaseRequest) => Promise<boolean>;
+  onRatePurchase: (req: PurchaseRequest) => void;
+  onEditRating: (rating: ExchangeRating) => void;
   onOpenProfileRatings: (userId: string, userName: string) => void;
   onClearSearch: () => void;
 }
@@ -77,8 +83,11 @@ export function PurchaseRequestsPanel({
   loading,
   updatingId,
   isBackendConfigured,
+  getRatingForRequestByUser,
   onConfirmPayment,
   onCancelRequest,
+  onRatePurchase,
+  onEditRating,
   onOpenProfileRatings,
   onClearSearch,
 }: PurchaseRequestsPanelProps) {
@@ -163,7 +172,7 @@ export function PurchaseRequestsPanel({
 
         <p className="text-xs text-slate-500 inline-flex items-center gap-1.5">
           <Lock className="w-3.5 h-3.5 text-slate-400 shrink-0" aria-hidden="true" />
-          <span>Private — visible only to the involved borrower and lender.</span>
+          <span>Private — visible only to the involved borrower, lender, and admin.</span>
         </p>
       </div>
 
@@ -205,7 +214,6 @@ export function PurchaseRequestsPanel({
             const isLender = req.lenderId === currentUserId;
             const isUpdating = updatingId === req.id;
             const userConfirmed = isBorrower ? req.borrowerConfirmed : req.lenderConfirmed;
-            const otherConfirmed = isBorrower ? req.lenderConfirmed : req.borrowerConfirmed;
             const canEditAmount =
               req.status === 'Pending' && !req.borrowerConfirmed && !req.lenderConfirmed;
             const draftAmountValue = amountDrafts[req.id] ?? String(req.finalAmount);
@@ -216,6 +224,11 @@ export function PurchaseRequestsPanel({
                     req.borrowerRatingCount === 1 ? 'review' : 'reviews'
                   })`
                 : 'No ratings yet';
+
+            const existingRating =
+              req.status === 'Completed'
+                ? getRatingForRequestByUser(req.id, currentUserId)
+                : undefined;
 
             return (
               <article
@@ -408,7 +421,7 @@ export function PurchaseRequestsPanel({
                               <span className="font-semibold text-slate-900 tabular-nums">
                                 {formatInr(req.finalAmount)}
                               </span>
-                              . Confirm to complete the purchase.
+                              . Confirm to complete the purchase and unlock ratings.
                             </p>
                           )}
 
@@ -456,7 +469,6 @@ export function PurchaseRequestsPanel({
                             {isBorrower
                               ? `You confirmed “Payment made” (${formatInr(req.finalAmount)}) · Waiting for ${req.lenderName} to confirm “Payment received”.`
                               : `You confirmed “Payment received” (${formatInr(req.finalAmount)}) · Waiting for ${req.borrowerName} to confirm “Payment made”.`}
-                            {otherConfirmed ? '' : ''}
                           </p>
                           <button
                             type="button"
@@ -467,6 +479,56 @@ export function PurchaseRequestsPanel({
                             Cancel request
                           </button>
                         </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Ratings Section (Completed) */}
+                  {req.status === 'Completed' && (isBorrower || isLender) && (
+                    <div className="pt-4 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3">
+                      {!existingRating ? (
+                        <>
+                          <span className="text-xs font-medium text-emerald-700">
+                            Completed · Both confirmations recorded
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => onRatePurchase(req)}
+                            disabled={!isBackendConfigured}
+                            className="min-h-[38px] px-4 py-1.5 rounded-xl bg-blue-700 text-white text-xs sm:text-sm font-medium hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 transition-colors inline-flex items-center gap-1.5 shrink-0 cursor-pointer disabled:opacity-50"
+                          >
+                            <Star className="w-3.5 h-3.5" aria-hidden="true" />
+                            <span>{isBorrower ? 'Rate lender' : 'Rate borrower'}</span>
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-slate-700">
+                            <span className="inline-flex items-center gap-1 font-medium text-slate-900 tabular-nums">
+                              <Star
+                                className="w-3.5 h-3.5 fill-amber-400 text-amber-500"
+                                aria-hidden="true"
+                              />
+                              <span>Your rating: {existingRating.score}/5</span>
+                            </span>
+                            {existingRating.isEdited && (
+                              <span className="text-slate-500">
+                                · Updated {formatTimestamp(existingRating.updatedAtMs)}
+                              </span>
+                            )}
+                          </div>
+                          {isRatingEditable(existingRating) && (
+                            <button
+                              type="button"
+                              onClick={() => onEditRating(existingRating)}
+                              title={formatRemainingEditWindow(existingRating)}
+                              className="min-h-[36px] px-3 py-1.5 rounded-xl border border-slate-300 bg-white text-xs font-medium text-slate-700 hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 transition-colors inline-flex items-center gap-1.5 shrink-0 cursor-pointer"
+                            >
+                              <Pencil className="w-3 h-3" aria-hidden="true" />
+                              <span>Edit rating</span>
+                            </button>
+                          )}
+                        </>
                       )}
                     </div>
                   )}

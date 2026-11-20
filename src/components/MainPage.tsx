@@ -6,22 +6,17 @@ import {
   Clock,
   GraduationCap,
   HandHelping,
-  Inbox,
   Info,
   Loader2,
   LogOut,
   Menu,
   Package,
-  Pencil,
-  Phone,
   Plus,
-  Receipt,
   Search,
   Shield,
   ShoppingBag,
   Star,
   Trash2,
-  UserCheck,
   UserRound,
   X,
 } from 'lucide-react';
@@ -29,20 +24,18 @@ import {
   formatInr,
   type CampusItem,
   type CampusRequest,
-  type CompletedTransactionItem,
   type ExchangeRating,
   type ListingType,
+  type PurchaseRequest,
 } from '../data/campusItems';
 import type { CampusUser, StudentProfile } from '../hooks/useAuth';
 import { useAdmins } from '../hooks/useAdmins';
 import { useCampusItems } from '../hooks/useCampusItems';
-import { usePayments } from '../hooks/usePayments';
 import { usePublicProfiles } from '../hooks/usePublicProfiles';
 import { usePurchaseRequests } from '../hooks/usePurchaseRequests';
 import {
   buildExchangeSummary,
-  formatRemainingEditWindow,
-  isRatingEditable,
+  buildPurchaseExchangeSummary,
   useRatings,
 } from '../hooks/useRatings';
 import type { AuthFeedback } from '../lib/firebase';
@@ -55,8 +48,9 @@ import {
 } from '../lib/profileUtils';
 import { AddItemModal } from './AddItemModal';
 import { AdminDashboardPanel } from './AdminDashboardPanel';
+import { BorrowRequestModal } from './BorrowRequestModal';
+import { BorrowRequestsPanel } from './BorrowRequestsPanel';
 import { DeleteConfirmModal, type DeleteTarget } from './DeleteConfirmModal';
-import { NewRequestModal } from './NewRequestModal';
 import {
   ProfileReviewsPanel,
   type ProfileReviewCandidate,
@@ -66,7 +60,6 @@ import { PurchaseRequestsPanel } from './PurchaseRequestsPanel';
 import { RateExchangeModal, type RateModalTarget } from './RateExchangeModal';
 import { StarRatingDisplay } from './StarRatingDisplay';
 import { StudentProfileModal } from './StudentProfileModal';
-import { TransactionsPanel } from './TransactionsPanel';
 
 interface MainPageProps {
   user: CampusUser;
@@ -87,17 +80,14 @@ interface MainPageProps {
 
 type ActiveView =
   | 'items'
-  | 'shared-requests'
-  | 'my-requests'
+  | 'borrow-requests'
   | 'purchase-requests'
   | 'profile-reviews'
-  | 'transactions'
   | 'admin';
 type ItemListingFilter = 'all' | ListingType;
 type PendingGateAction =
   | { type: 'add' }
-  | { type: 'request'; linkedItem: CampusItem | null }
-  | { type: 'accept'; request: CampusRequest }
+  | { type: 'borrow'; item: CampusItem }
   | { type: 'buy'; item: CampusItem };
 
 function getInitials(name: string | null, email: string | null): string {
@@ -107,19 +97,6 @@ function getInitials(name: string | null, email: string | null): string {
     return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
   }
   return source.slice(0, 2).toUpperCase();
-}
-
-function formatTimestamp(ms: number): string {
-  try {
-    return new Intl.DateTimeFormat('en-US', {
-      month: 'short',
-      day: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit',
-    }).format(new Date(ms));
-  } catch {
-    return 'Recently';
-  }
 }
 
 function ItemPhoto({ src, alt }: { src: string; alt: string }) {
@@ -144,31 +121,6 @@ function ItemPhoto({ src, alt }: { src: string; alt: string }) {
         className="w-full h-full object-cover object-center"
       />
     </div>
-  );
-}
-
-function RequestStatusLabel({ status }: { status: CampusRequest['status'] }) {
-  if (status === 'Fulfilled') {
-    return (
-      <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700">
-        <CheckCircle2 className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-        <span>Fulfilled</span>
-      </span>
-    );
-  }
-  if (status === 'Accepted') {
-    return (
-      <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-700">
-        <UserCheck className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-        <span>Accepted</span>
-      </span>
-    );
-  }
-  return (
-    <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-blue-700">
-      <Clock className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-      <span>Open</span>
-    </span>
   );
 }
 
@@ -201,9 +153,8 @@ export function MainPage({
     studentProfile?.phoneNumber || userPhone || ''
   );
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
-  const [isNewRequestModalOpen, setIsNewRequestModalOpen] = useState(false);
   const [isEditProfileOpen, setIsEditProfileOpen] = useState(false);
-  const [linkedRequestItem, setLinkedRequestItem] = useState<CampusItem | null>(null);
+  const [borrowItemTarget, setBorrowItemTarget] = useState<CampusItem | null>(null);
   const [buyItemTarget, setBuyItemTarget] = useState<CampusItem | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
   const [pendingGateAction, setPendingGateAction] = useState<PendingGateAction | null>(null);
@@ -244,29 +195,35 @@ export function MainPage({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [mobileNavOpen]);
 
+  const hasPhone = Boolean(userPhone && userPhone.trim().length >= 7);
+  const displayName =
+    studentProfile?.displayName?.trim() || user.displayName?.trim() || user.email || 'Campus Student';
+
   const {
     allItems,
-    sharedRequests,
-    myRequests,
+    borrowRequests,
+    pendingBorrowRequests,
+    allAdminRequests,
     isBackendConfigured,
     loading,
+    borrowRequestsLoading,
     submittingItem,
     submittingRequest,
     updatingRequestId,
     deletingId,
     itemsError,
     statusMessage,
-    newRequestAlert,
+    incomingBorrowAlert,
     addItem,
     deleteItem,
-    createRequest,
-    acceptRequest,
+    createBorrowRequest,
     fulfillRequest,
+    cancelBorrowRequest,
     deleteRequest,
     clearItemsError,
     clearStatusMessage,
-    dismissNewRequestAlert,
-  } = useCampusItems(user, userPhone, isAdmin);
+    dismissIncomingBorrowAlert,
+  } = useCampusItems(user, displayName, userPhone, isAdmin);
 
   const {
     adminUids,
@@ -291,27 +248,14 @@ export function MainPage({
     updateRating,
     clearRatingsError,
     clearRatingStatusMessage,
-  } = useRatings(user);
+  } = useRatings(user, displayName);
 
   const { publicProfiles, publicProfilesById } = usePublicProfiles(user);
-
-  const hasPhone = Boolean(userPhone && userPhone.trim().length >= 7);
-  const displayName =
-    studentProfile?.displayName?.trim() || user.displayName?.trim() || user.email || 'Campus Student';
-
-  const {
-    payments,
-    paymentsLoading,
-    paymentsError,
-    paymentStatusMessage,
-    clearPaymentsError,
-    clearPaymentStatusMessage,
-  } = usePayments(user);
 
   const {
     purchaseRequests,
     pendingPurchaseRequests,
-    completedPurchaseRequests,
+    allAdminPurchaseRequests,
     purchaseRequestsLoading,
     submittingPurchaseRequest,
     updatingPurchaseId,
@@ -324,45 +268,7 @@ export function MainPage({
     clearPurchaseError,
     clearPurchaseStatusMessage,
     dismissIncomingPurchaseAlert,
-  } = usePurchaseRequests(user, displayName, userPhone);
-
-  const completedTransactions = useMemo<CompletedTransactionItem[]>(() => {
-    const items: CompletedTransactionItem[] = [];
-    const seenIds = new Set<string>();
-
-    for (const req of completedPurchaseRequests) {
-      const isBorrower = req.borrowerId === user.uid;
-      seenIds.add(req.id);
-      items.push({
-        id: req.id,
-        itemTitle: req.itemTitle,
-        counterpartyName: isBorrower
-          ? publicProfilesById[req.lenderId]?.displayName || req.lenderName
-          : publicProfilesById[req.borrowerId]?.displayName || req.borrowerName,
-        role: isBorrower ? 'buyer' : 'seller',
-        finalAmount: req.finalAmount,
-        completedAtMs: req.completedAtMs ?? req.updatedAtMs,
-      });
-    }
-
-    for (const payment of payments) {
-      if (payment.status !== 'Successful' || seenIds.has(payment.id)) continue;
-      const isBuyer = payment.buyerId === user.uid;
-      items.push({
-        id: payment.id,
-        itemTitle: payment.itemTitle,
-        counterpartyName: isBuyer
-          ? publicProfilesById[payment.sellerId]?.displayName || payment.sellerName
-          : publicProfilesById[payment.buyerId]?.displayName || payment.buyerName,
-        role: isBuyer ? 'buyer' : 'seller',
-        finalAmount: payment.amount,
-        completedAtMs: payment.updatedAtMs,
-      });
-    }
-
-    items.sort((a, b) => b.completedAtMs - a.completedAtMs);
-    return items;
-  }, [completedPurchaseRequests, payments, publicProfilesById, user.uid]);
+  } = usePurchaseRequests(user, displayName, userPhone, isAdmin);
 
   const myAcademicMeta = formatBranchSemester(studentProfile?.branch, studentProfile?.semester);
   const initials = getInitials(displayName, user.email);
@@ -383,40 +289,16 @@ export function MainPage({
       }
       if (!normalizedQuery) return true;
       const authorPublic = publicProfilesById[item.authorId];
+      const authorDisplay = (authorPublic?.displayName || item.authorName).toLowerCase();
       const listingWords = item.listingType === 'sell' ? 'sell sale buy permanent' : 'lend borrow';
       return (
         item.title.toLowerCase().includes(normalizedQuery) ||
-        item.description.toLowerCase().includes(normalizedQuery) ||
-        item.authorName.toLowerCase().includes(normalizedQuery) ||
-        item.status.toLowerCase().includes(normalizedQuery) ||
+        authorDisplay.includes(normalizedQuery) ||
         listingWords.includes(normalizedQuery) ||
-        (item.listingType === 'sell' && String(item.price).includes(normalizedQuery)) ||
-        (authorPublic?.branch && authorPublic.branch.toLowerCase().includes(normalizedQuery)) ||
-        (authorPublic?.semester && authorPublic.semester.toLowerCase().includes(normalizedQuery))
+        (item.listingType === 'sell' && String(item.price).includes(normalizedQuery))
       );
     });
   }, [allItems, itemListingFilter, normalizedQuery, publicProfilesById]);
-
-  const filteredSharedRequests = useMemo(() => {
-    if (!normalizedQuery) return sharedRequests;
-    return sharedRequests.filter(
-      (req) =>
-        req.description.toLowerCase().includes(normalizedQuery) ||
-        req.requesterName.toLowerCase().includes(normalizedQuery) ||
-        (req.itemTitle && req.itemTitle.toLowerCase().includes(normalizedQuery)) ||
-        (req.acceptedByName && req.acceptedByName.toLowerCase().includes(normalizedQuery))
-    );
-  }, [sharedRequests, normalizedQuery]);
-
-  const filteredMyRequests = useMemo(() => {
-    if (!normalizedQuery) return myRequests;
-    return myRequests.filter(
-      (req) =>
-        req.description.toLowerCase().includes(normalizedQuery) ||
-        (req.itemTitle && req.itemTitle.toLowerCase().includes(normalizedQuery)) ||
-        (req.acceptedByName && req.acceptedByName.toLowerCase().includes(normalizedQuery))
-    );
-  }, [myRequests, normalizedQuery]);
 
   const availableProfiles = useMemo<ProfileReviewCandidate[]>(() => {
     const byId = new Map<string, ProfileReviewCandidate>();
@@ -435,9 +317,13 @@ export function MainPage({
     for (const item of allItems) {
       addCandidate(item.authorId, item.authorName);
     }
-    for (const req of sharedRequests) {
+    for (const req of borrowRequests) {
       addCandidate(req.requesterId, req.requesterName);
       addCandidate(req.acceptedById, req.acceptedByName);
+    }
+    for (const req of purchaseRequests) {
+      addCandidate(req.borrowerId, req.borrowerName);
+      addCandidate(req.lenderId, req.lenderName);
     }
     for (const rating of ratings) {
       addCandidate(rating.rateeId, rating.rateeName);
@@ -450,11 +336,12 @@ export function MainPage({
     return Array.from(byId.values());
   }, [
     allItems,
+    borrowRequests,
     displayName,
     profileRatingTarget,
     publicProfiles,
+    purchaseRequests,
     ratings,
-    sharedRequests,
     user.uid,
   ]);
 
@@ -468,6 +355,11 @@ export function MainPage({
     searchInputRef.current?.focus();
   }
 
+  function handleSelectView(view: ActiveView) {
+    setActiveView(view);
+    setMobileNavOpen(false);
+  }
+
   function handleOpenAddItem() {
     if (!hasCompleteProfile) {
       onClearProfileError();
@@ -477,14 +369,21 @@ export function MainPage({
     setIsAddModalOpen(true);
   }
 
-  function handleOpenNewRequest(linkedItem: CampusItem | null = null) {
+  function handleOpenBorrowItem(item: CampusItem) {
     if (!hasCompleteProfile) {
       onClearProfileError();
-      setPendingGateAction({ type: 'request', linkedItem });
+      setPendingGateAction({ type: 'borrow', item });
       return;
     }
-    setLinkedRequestItem(linkedItem);
-    setIsNewRequestModalOpen(true);
+    const existingPending = pendingBorrowRequests.find(
+      (req) => req.itemId === item.id && req.requesterId === user.uid
+    );
+    if (existingPending) {
+      handleSelectView('borrow-requests');
+      return;
+    }
+    clearItemsError();
+    setBorrowItemTarget(item);
   }
 
   function handleOpenBuyItem(item: CampusItem) {
@@ -501,17 +400,7 @@ export function MainPage({
       return;
     }
     clearPurchaseError();
-    clearPaymentsError();
     setBuyItemTarget(item);
-  }
-
-  async function handleAcceptRequestClick(req: CampusRequest) {
-    if (!hasCompleteProfile) {
-      onClearProfileError();
-      setPendingGateAction({ type: 'accept', request: req });
-      return;
-    }
-    await acceptRequest(req);
   }
 
   async function handleInlineProfileSubmit(event: FormEvent<HTMLFormElement>) {
@@ -534,11 +423,16 @@ export function MainPage({
       setPendingGateAction(null);
       if (nextAction?.type === 'add') {
         setIsAddModalOpen(true);
-      } else if (nextAction?.type === 'request') {
-        setLinkedRequestItem(nextAction.linkedItem);
-        setIsNewRequestModalOpen(true);
-      } else if (nextAction?.type === 'accept') {
-        await acceptRequest(nextAction.request);
+      } else if (nextAction?.type === 'borrow') {
+        const existingPending = pendingBorrowRequests.find(
+          (req) => req.itemId === nextAction.item.id && req.requesterId === user.uid
+        );
+        if (existingPending) {
+          handleSelectView('borrow-requests');
+        } else {
+          clearItemsError();
+          setBorrowItemTarget(nextAction.item);
+        }
       } else if (nextAction?.type === 'buy') {
         const existingPending = pendingPurchaseRequests.find(
           (req) => req.itemId === nextAction.item.id && req.borrowerId === user.uid
@@ -547,7 +441,6 @@ export function MainPage({
           handleSelectView('purchase-requests');
         } else {
           clearPurchaseError();
-          clearPaymentsError();
           setBuyItemTarget(nextAction.item);
         }
       }
@@ -557,7 +450,9 @@ export function MainPage({
 
   async function handleConfirmDelete(target: DeleteTarget) {
     if (target.kind === 'request') {
-      const matchReq = sharedRequests.find((r) => r.id === target.id);
+      const matchReq =
+        allAdminRequests.find((r) => r.id === target.id) ||
+        borrowRequests.find((r) => r.id === target.id);
       if (!matchReq) {
         setDeleteTarget(null);
         return;
@@ -576,11 +471,6 @@ export function MainPage({
     setDeleteTarget(null);
   }
 
-  function handleSelectView(view: ActiveView) {
-    setActiveView(view);
-    setMobileNavOpen(false);
-  }
-
   function handleOpenProfileRatings(userId: string, userName: string) {
     const publicMatch = publicProfilesById[userId];
     setProfileRatingTarget({
@@ -593,7 +483,7 @@ export function MainPage({
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
-  function handleOpenCreateRating(req: CampusRequest) {
+  function handleOpenCreateBorrowRating(req: CampusRequest) {
     if (
       req.status !== 'Fulfilled' ||
       !req.acceptedById ||
@@ -605,14 +495,56 @@ export function MainPage({
     const isBorrower = req.requesterId === user.uid;
     const rateeId = isBorrower ? req.acceptedById : req.requesterId;
     const rateePublic = publicProfilesById[rateeId];
+    const summary = buildExchangeSummary(req);
+    const borrowerDisplay =
+      publicProfilesById[req.requesterId]?.displayName || req.requesterName || 'Borrower';
+    const lenderDisplay =
+      publicProfilesById[req.acceptedById]?.displayName || req.acceptedByName || 'Lender';
+
     setRateTarget({
       mode: 'create',
-      request: req,
-      rateeName:
-        rateePublic?.displayName ||
-        (isBorrower ? req.acceptedByName || 'Lender' : req.requesterName || 'Borrower'),
+      exchange: {
+        id: req.id,
+        summary,
+        borrowerId: req.requesterId,
+        borrowerName: borrowerDisplay,
+        lenderId: req.acceptedById,
+        lenderName: lenderDisplay,
+        kind: 'borrow',
+      },
+      rateeName: rateePublic?.displayName || (isBorrower ? lenderDisplay : borrowerDisplay),
       raterRole: isBorrower ? 'borrower' : 'lender',
-      exchangeSummary: buildExchangeSummary(req),
+      exchangeSummary: summary,
+    });
+  }
+
+  function handleOpenCreatePurchaseRating(req: PurchaseRequest) {
+    if (req.status !== 'Completed' || !req.borrowerConfirmed || !req.lenderConfirmed) {
+      return;
+    }
+    const isBorrower = req.borrowerId === user.uid;
+    const rateeId = isBorrower ? req.lenderId : req.borrowerId;
+    const rateePublic = publicProfilesById[rateeId];
+    const summary = buildPurchaseExchangeSummary(req);
+    const borrowerDisplay =
+      publicProfilesById[req.borrowerId]?.displayName || req.borrowerName || 'Borrower';
+    const lenderDisplay =
+      publicProfilesById[req.lenderId]?.displayName || req.lenderName || 'Lender';
+
+    setRateTarget({
+      mode: 'create',
+      exchange: {
+        id: req.id,
+        summary,
+        borrowerId: req.borrowerId,
+        borrowerName: borrowerDisplay,
+        lenderId: req.lenderId,
+        lenderName: lenderDisplay,
+        kind: 'purchase',
+      },
+      rateeName: rateePublic?.displayName || (isBorrower ? lenderDisplay : borrowerDisplay),
+      raterRole: isBorrower ? 'borrower' : 'lender',
+      exchangeSummary: summary,
     });
   }
 
@@ -628,8 +560,8 @@ export function MainPage({
 
   async function handleRateSubmit(score: number, comment: string): Promise<boolean> {
     if (!rateTarget) return false;
-    if (rateTarget.mode === 'create' && rateTarget.request) {
-      return submitRating(rateTarget.request, score, comment);
+    if (rateTarget.mode === 'create' && rateTarget.exchange) {
+      return submitRating(rateTarget.exchange, score, comment);
     }
     if (rateTarget.mode === 'edit' && rateTarget.existingRating) {
       return updateRating(rateTarget.existingRating, score, comment);
@@ -637,389 +569,34 @@ export function MainPage({
     return false;
   }
 
-  function renderRequestCards(requests: CampusRequest[], emptyForAllView: boolean) {
-    if (requests.length === 0 && !normalizedQuery) {
-      return (
-        <div className="bg-white border border-slate-200 rounded-2xl p-10 text-center max-w-xl mx-auto mt-6">
-          <div className="w-11 h-11 rounded-xl bg-slate-100 text-slate-600 flex items-center justify-center mx-auto">
-            <Inbox className="w-5 h-5" aria-hidden="true" />
-          </div>
-          <h2 className="mt-4 font-display text-lg font-semibold text-slate-900">
-            {emptyForAllView
-              ? 'No campus requests posted yet'
-              : 'You haven’t created any requests yet'}
-          </h2>
-          <p className="mt-2 text-sm text-slate-600 leading-relaxed">
-            {emptyForAllView
-              ? 'When any signed-in student posts an Open request, it appears here immediately so others can accept and fulfill it.'
-              : 'Need to borrow a charger, calculator, or umbrella? Create an Open request so fellow students can help.'}
-          </p>
-          <button
-            type="button"
-            onClick={() => handleOpenNewRequest(null)}
-            className="mt-6 min-h-[42px] px-5 py-2 rounded-xl bg-blue-700 text-white text-sm font-medium hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 focus-visible:ring-offset-2 inline-flex items-center gap-2 cursor-pointer"
-          >
-            <HandHelping className="w-4 h-4" aria-hidden="true" />
-            <span>New request</span>
-          </button>
-        </div>
-      );
-    }
-
-    if (requests.length === 0 && normalizedQuery) {
-      return (
-        <div className="bg-white border border-slate-200 rounded-2xl p-10 text-center max-w-xl mx-auto mt-6">
-          <div className="w-11 h-11 rounded-xl bg-slate-100 text-slate-600 flex items-center justify-center mx-auto">
-            <Search className="w-5 h-5" aria-hidden="true" />
-          </div>
-          <h2 className="mt-4 font-display text-lg font-semibold text-slate-900">
-            No matching requests
-          </h2>
-          <p className="mt-2 text-sm text-slate-600 leading-relaxed">
-            Nothing matched “
-            <span className="font-medium text-slate-900">{searchQuery.trim()}</span>”.
-          </p>
-          <button
-            type="button"
-            onClick={handleClearSearch}
-            className="mt-6 min-h-[40px] px-4 py-2 rounded-xl border border-slate-300 bg-white text-sm font-medium text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 cursor-pointer"
-          >
-            Clear search
-          </button>
-        </div>
-      );
-    }
-
-    return (
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-        {requests.map((req) => {
-          const isRequester = req.requesterId === user.uid;
-          const isAccepter = req.acceptedById === user.uid;
-          const isBorrower = isRequester;
-          const isLender = isAccepter;
-          const isUpdating = updatingRequestId === req.id;
-          const canAccept = req.status === 'Open' && !isRequester;
-          const borrowerConfirmed = req.borrowerFulfilled;
-          const lenderConfirmed = req.lenderFulfilled;
-          const currentUserConfirmed = isBorrower
-            ? borrowerConfirmed
-            : isLender
-              ? lenderConfirmed
-              : false;
-          const otherConfirmed = isBorrower
-            ? lenderConfirmed
-            : isLender
-              ? borrowerConfirmed
-              : false;
-          const canConfirmFulfilled =
-            req.status === 'Accepted' && (isBorrower || isLender) && !currentUserConfirmed;
-          const isFullyFulfilled =
-            req.status === 'Fulfilled' && borrowerConfirmed && lenderConfirmed;
-          const requesterPublic = publicProfilesById[req.requesterId];
-          const requesterDisplay = requesterPublic?.displayName || req.requesterName;
-          const requesterAcademic = formatBranchSemester(
-            requesterPublic?.branch,
-            requesterPublic?.semester
-          );
-          const accepterPublic = req.acceptedById
-            ? publicProfilesById[req.acceptedById]
-            : undefined;
-          const accepterDisplay = accepterPublic?.displayName || req.acceptedByName;
-          const accepterAcademic = formatBranchSemester(
-            accepterPublic?.branch,
-            accepterPublic?.semester
-          );
-
-          return (
-            <article
-              key={req.id}
-              className="bg-white border border-slate-200 rounded-2xl overflow-hidden flex flex-col justify-between transition-colors duration-150 hover:border-slate-300"
-            >
-              <div>
-                {req.itemPhotoUrl && req.itemTitle && (
-                  <div className="flex items-center gap-3 px-5 py-3.5 bg-slate-50/70 border-b border-slate-100">
-                    <img
-                      src={req.itemPhotoUrl}
-                      alt={req.itemTitle}
-                      referrerPolicy="no-referrer"
-                      className="w-12 h-9 rounded-lg object-cover border border-slate-200 shrink-0"
-                    />
-                    <span className="text-xs font-medium text-slate-700 truncate">
-                      Item: {req.itemTitle}
-                    </span>
-                  </div>
-                )}
-
-                <div className="p-5 sm:p-6">
-                  <div className="flex items-center justify-between gap-2">
-                    <RequestStatusLabel status={req.status} />
-                    <span className="text-xs text-slate-400 tabular-nums">
-                      {formatTimestamp(req.createdAtMs)}
-                    </span>
-                  </div>
-
-                  <p className="mt-3 text-sm sm:text-[15px] text-slate-900 font-medium leading-relaxed">
-                    {req.description}
-                  </p>
-
-                  <div className="mt-4 pt-4 border-t border-slate-100 space-y-3 text-xs text-slate-600">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <p>
-                          Requested by{' '}
-                          <span className="font-semibold text-slate-900">
-                            {isRequester ? 'You' : requesterDisplay}
-                          </span>
-                        </p>
-                        {requesterAcademic && (
-                          <p className="text-[11px] text-slate-500 mt-0.5">{requesterAcademic}</p>
-                        )}
-                        <StarRatingDisplay
-                          userId={req.requesterId}
-                          userName={isRequester ? displayName : requesterDisplay}
-                          summary={ratingSummaryByUserId[req.requesterId]}
-                          onOpenProfile={handleOpenProfileRatings}
-                          compact
-                        />
-                      </div>
-                      {req.requesterPhone && (
-                        <a
-                          href={`tel:${req.requesterPhone.replace(/[^+\d]/g, '')}`}
-                          className="inline-flex items-center gap-1 text-blue-700 font-medium hover:underline shrink-0 pt-0.5"
-                        >
-                          <Phone className="w-3 h-3" aria-hidden="true" />
-                          <span>{req.requesterPhone}</span>
-                        </a>
-                      )}
-                    </div>
-
-                    {req.acceptedById && accepterDisplay && (
-                      <div className="flex items-start justify-between gap-2 pt-3 border-t border-slate-100">
-                        <div className="min-w-0">
-                          <p>
-                            Accepted by{' '}
-                            <span className="font-semibold text-slate-900">
-                              {isAccepter ? 'You' : accepterDisplay}
-                            </span>
-                          </p>
-                          {accepterAcademic && (
-                            <p className="text-[11px] text-slate-500 mt-0.5">{accepterAcademic}</p>
-                          )}
-                          <StarRatingDisplay
-                            userId={req.acceptedById}
-                            userName={isAccepter ? displayName : accepterDisplay}
-                            summary={ratingSummaryByUserId[req.acceptedById]}
-                            onOpenProfile={handleOpenProfileRatings}
-                            compact
-                          />
-                        </div>
-                        {req.acceptedByPhone && (
-                          <a
-                            href={`tel:${req.acceptedByPhone.replace(/[^+\d]/g, '')}`}
-                            className="inline-flex items-center gap-1 text-blue-700 font-medium hover:underline shrink-0 pt-0.5"
-                          >
-                            <Phone className="w-3 h-3" aria-hidden="true" />
-                            <span>{req.acceptedByPhone}</span>
-                          </a>
-                        )}
-                      </div>
-                    )}
-
-                    {req.status === 'Accepted' && (
-                      <div className="pt-3 border-t border-slate-100 space-y-1.5">
-                        <p className="font-medium text-slate-700">
-                          Fulfillment confirmation (both required to rate):
-                        </p>
-                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-                          <span
-                            className={`inline-flex items-center gap-1 ${
-                              borrowerConfirmed ? 'text-emerald-700 font-medium' : 'text-slate-500'
-                            }`}
-                          >
-                            {borrowerConfirmed ? (
-                              <CheckCircle2 className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-                            ) : (
-                              <Clock className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-                            )}
-                            <span>Borrower: {borrowerConfirmed ? 'Fulfilled' : 'Pending'}</span>
-                          </span>
-                          <span
-                            className={`inline-flex items-center gap-1 ${
-                              lenderConfirmed ? 'text-emerald-700 font-medium' : 'text-slate-500'
-                            }`}
-                          >
-                            {lenderConfirmed ? (
-                              <CheckCircle2 className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-                            ) : (
-                              <Clock className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-                            )}
-                            <span>Lender: {lenderConfirmed ? 'Fulfilled' : 'Pending'}</span>
-                          </span>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              <div className="px-5 sm:px-6 py-4 bg-slate-50/60 border-t border-slate-100 flex items-center justify-between gap-3">
-                {canAccept ? (
-                  <button
-                    type="button"
-                    onClick={() => void handleAcceptRequestClick(req)}
-                    disabled={isUpdating || !isBackendConfigured}
-                    className="w-full min-h-[40px] px-4 py-2 rounded-xl bg-blue-700 text-white text-xs sm:text-sm font-medium hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 focus-visible:ring-offset-2 transition-colors inline-flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
-                  >
-                    {isUpdating ? (
-                      <>
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden="true" />
-                        <span>Accepting...</span>
-                      </>
-                    ) : (
-                      <span>Accept request</span>
-                    )}
-                  </button>
-                ) : canConfirmFulfilled ? (
-                  <div className="w-full space-y-2.5">
-                    <p className="text-xs text-slate-600 leading-relaxed">
-                      {otherConfirmed
-                        ? `${isBorrower ? 'Lender' : 'Borrower'} already marked Fulfilled · Press Mark Fulfilled to complete & unlock ratings.`
-                        : 'Both borrower and lender must press Mark Fulfilled before ratings unlock.'}
-                    </p>
-                    <button
-                      type="button"
-                      onClick={() => void fulfillRequest(req)}
-                      disabled={isUpdating || !isBackendConfigured}
-                      className="w-full min-h-[40px] px-4 py-2 rounded-xl bg-emerald-700 text-white text-xs sm:text-sm font-medium hover:bg-emerald-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-700 focus-visible:ring-offset-2 transition-colors inline-flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
-                    >
-                      {isUpdating ? (
-                        <>
-                          <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden="true" />
-                          <span>Updating...</span>
-                        </>
-                      ) : (
-                        <>
-                          <CheckCircle2 className="w-3.5 h-3.5" aria-hidden="true" />
-                          <span>Mark Fulfilled</span>
-                        </>
-                      )}
-                    </button>
-                  </div>
-                ) : req.status === 'Open' ? (
-                  <span className="text-xs text-slate-500">
-                    Waiting for another student to accept
-                  </span>
-                ) : req.status === 'Accepted' && (isBorrower || isLender) && currentUserConfirmed ? (
-                  <span className="text-xs font-medium text-emerald-700 leading-relaxed">
-                    You marked Fulfilled · Waiting for {isBorrower ? 'lender' : 'borrower'} to press
-                    Mark Fulfilled before ratings unlock.
-                  </span>
-                ) : req.status === 'Accepted' ? (
-                  <span className="text-xs text-slate-600">
-                    Accepted by {accepterDisplay} · Waiting for both parties to confirm fulfillment
-                  </span>
-                ) : isFullyFulfilled && (isRequester || isAccepter) && req.acceptedById ? (
-                  (() => {
-                    const existingRating = getRatingForRequestByUser(req.id, user.uid);
-                    if (!existingRating) {
-                      return (
-                        <div className="w-full flex items-center justify-between gap-3">
-                          <span className="text-xs font-medium text-emerald-700">
-                            Fulfilled · Both confirmed
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => handleOpenCreateRating(req)}
-                            disabled={!isBackendConfigured}
-                            className="min-h-[36px] px-3.5 py-1.5 rounded-xl bg-blue-700 text-white text-xs font-medium hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 transition-colors inline-flex items-center gap-1.5 shrink-0 cursor-pointer disabled:opacity-50"
-                          >
-                            <Star className="w-3.5 h-3.5" aria-hidden="true" />
-                            <span>{isRequester ? 'Rate lender' : 'Rate borrower'}</span>
-                          </button>
-                        </div>
-                      );
-                    }
-
-                    const editable = isRatingEditable(existingRating);
-                    return (
-                      <div className="w-full flex flex-wrap items-center justify-between gap-2">
-                        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-slate-700">
-                          <span className="inline-flex items-center gap-1 font-medium text-slate-900 tabular-nums">
-                            <Star
-                              className="w-3.5 h-3.5 fill-amber-400 text-amber-500"
-                              aria-hidden="true"
-                            />
-                            <span>Your rating: {existingRating.score}/5</span>
-                          </span>
-                          {existingRating.isEdited && (
-                            <span className="text-slate-500">
-                              · Updated {formatTimestamp(existingRating.updatedAtMs)}
-                            </span>
-                          )}
-                        </div>
-                        {editable && (
-                          <button
-                            type="button"
-                            onClick={() => handleOpenEditRating(existingRating)}
-                            title={formatRemainingEditWindow(existingRating)}
-                            className="min-h-[34px] px-3 py-1 rounded-lg border border-slate-300 bg-white text-xs font-medium text-slate-700 hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 transition-colors inline-flex items-center gap-1 shrink-0 cursor-pointer"
-                          >
-                            <Pencil className="w-3 h-3" aria-hidden="true" />
-                            <span>Edit rating</span>
-                          </button>
-                        )}
-                      </div>
-                    );
-                  })()
-                ) : (
-                  <span className="text-xs font-medium text-emerald-700">
-                    Fulfilled · Both confirmed
-                  </span>
-                )}
-              </div>
-            </article>
-          );
-        })}
-      </div>
-    );
-  }
-
   const sectionHeaderMeta: Record<ActiveView, { title: string; subtitle: string }> = {
     items: {
       title: 'Shared Items',
       subtitle: 'Borrow everyday essentials or buy permanent-sale items from JDCOEM students.',
     },
-    'shared-requests': {
-      title: 'Shared Requests',
-      subtitle: 'Open requests posted by classmates — accept one to help out on campus.',
-    },
-    'my-requests': {
-      title: 'My Requests',
-      subtitle: 'Track requests you created across Open, Accepted, and two-party Fulfilled stages.',
+    'borrow-requests': {
+      title: 'Borrow Requests',
+      subtitle:
+        'Private lending & borrowing requests — contact each other directly and both confirm once returned.',
     },
     'purchase-requests': {
       title: 'Purchase Requests',
       subtitle:
-        'Private permanent-item purchase requests — contact each other directly and confirm once payment is settled.',
+        'Private permanent-item purchase requests — contact each other directly and both confirm once payment is settled.',
     },
     'profile-reviews': {
       title: 'Profile Reviews',
       subtitle: 'Public student profiles and verified exchange ratings across JDCOEM.',
     },
-    transactions: {
-      title: 'Transactions',
-      subtitle: 'Completed permanent-item purchases and sales.',
-    },
     admin: {
       title: 'Admin Dashboard',
-      subtitle: 'Moderate shared items and requests across campus and manage administrator access.',
+      subtitle:
+        'Moderate shared items and private requests across campus and manage administrator access.',
     },
   };
 
   const activeSectionMeta = sectionHeaderMeta[activeView];
   const isItemsPrimaryView = activeView === 'items';
-  const isRequestPrimaryView =
-    activeView === 'shared-requests' || activeView === 'my-requests';
 
   const navGroups: Array<{
     label: string;
@@ -1035,12 +612,11 @@ export function MainPage({
       items: [
         { id: 'items', label: 'Shared Items', count: allItems.length, icon: Package },
         {
-          id: 'shared-requests',
-          label: 'Shared Requests',
-          count: sharedRequests.length,
-          icon: Inbox,
+          id: 'borrow-requests',
+          label: 'Borrow Requests',
+          count: pendingBorrowRequests.length,
+          icon: HandHelping,
         },
-        { id: 'my-requests', label: 'My Requests', count: myRequests.length, icon: HandHelping },
         {
           id: 'purchase-requests',
           label: 'Purchase Requests',
@@ -1053,12 +629,6 @@ export function MainPage({
       label: 'Account & Trust',
       items: [
         { id: 'profile-reviews', label: 'Profile Reviews', count: ratings.length, icon: Star },
-        {
-          id: 'transactions',
-          label: 'Transactions',
-          count: completedTransactions.length,
-          icon: Receipt,
-        },
       ],
     },
     ...(isAdmin
@@ -1075,7 +645,10 @@ export function MainPage({
 
   function renderSidebarNavigation() {
     return (
-      <nav aria-label="CampusConnect navigation" className="flex-1 overflow-y-auto px-3 py-5 space-y-6">
+      <nav
+        aria-label="CampusConnect navigation"
+        className="flex-1 overflow-y-auto px-3 py-5 space-y-6"
+      >
         {navGroups.map((group) => (
           <div key={group.label}>
             <p className="px-3 mb-2 text-xs font-semibold text-slate-400">{group.label}</p>
@@ -1316,7 +889,7 @@ export function MainPage({
       {/* Workspace Main Content */}
       <div className="flex-1 lg:pl-64 flex flex-col min-w-0">
         <main className="flex-1 w-full max-w-[1160px] mx-auto px-4 sm:px-8 py-6 sm:py-8">
-          {/* Mobile Quick View Switcher (non-sticky to preserve viewport space) */}
+          {/* Mobile Quick View Switcher */}
           <div
             role="tablist"
             aria-label="CampusConnect sections"
@@ -1398,7 +971,7 @@ export function MainPage({
             </div>
           )}
 
-          {newRequestAlert && (
+          {incomingBorrowAlert && (
             <div
               role="status"
               className="mb-6 rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-950 flex flex-wrap items-center justify-between gap-3"
@@ -1407,26 +980,26 @@ export function MainPage({
                 <Bell className="w-5 h-5 text-blue-700 shrink-0 mt-0.5" aria-hidden="true" />
                 <p className="min-w-0 leading-relaxed">
                   <span className="font-semibold">
-                    New request from {newRequestAlert.requesterName}:
+                    New borrow request from {incomingBorrowAlert.requesterName}:
                   </span>{' '}
-                  “{newRequestAlert.description}”
+                  “{incomingBorrowAlert.itemTitle || incomingBorrowAlert.description}”
                 </p>
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 <button
                   type="button"
                   onClick={() => {
-                    handleSelectView('shared-requests');
-                    dismissNewRequestAlert();
+                    handleSelectView('borrow-requests');
+                    dismissIncomingBorrowAlert();
                   }}
                   className="min-h-[34px] px-3 py-1.5 rounded-lg bg-blue-700 text-white text-xs font-medium hover:bg-blue-800 transition-colors cursor-pointer"
                 >
-                  View Shared Requests
+                  View Borrow Requests
                 </button>
                 <button
                   type="button"
-                  onClick={dismissNewRequestAlert}
-                  aria-label="Dismiss new request alert"
+                  onClick={dismissIncomingBorrowAlert}
+                  aria-label="Dismiss borrow request alert"
                   className="p-1 rounded-md text-blue-800 hover:bg-blue-100 transition-colors cursor-pointer"
                 >
                   <X className="w-4 h-4" aria-hidden="true" />
@@ -1476,10 +1049,7 @@ export function MainPage({
             </div>
           )}
 
-          {(statusMessage ||
-            ratingStatusMessage ||
-            purchaseStatusMessage ||
-            paymentStatusMessage) && (
+          {(statusMessage || ratingStatusMessage || purchaseStatusMessage) && (
             <div
               role="status"
               className="mb-6 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-950 flex items-start gap-3"
@@ -1489,10 +1059,7 @@ export function MainPage({
                 aria-hidden="true"
               />
               <p className="flex-1 min-w-0 leading-relaxed">
-                {purchaseStatusMessage ||
-                  paymentStatusMessage ||
-                  ratingStatusMessage ||
-                  statusMessage}
+                {purchaseStatusMessage || ratingStatusMessage || statusMessage}
               </p>
               <button
                 type="button"
@@ -1500,7 +1067,6 @@ export function MainPage({
                   clearStatusMessage();
                   clearRatingStatusMessage();
                   clearPurchaseStatusMessage();
-                  clearPaymentStatusMessage();
                 }}
                 aria-label="Dismiss confirmation"
                 className="p-1 rounded-md text-emerald-800 hover:bg-emerald-100 transition-colors cursor-pointer"
@@ -1510,14 +1076,14 @@ export function MainPage({
             </div>
           )}
 
-          {(itemsError || ratingsError || purchaseError || paymentsError) && (
+          {(itemsError || ratingsError || purchaseError) && (
             <div
               role="alert"
               className="mb-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-950 flex items-start gap-3"
             >
               <AlertCircle className="w-5 h-5 text-red-700 shrink-0 mt-0.5" aria-hidden="true" />
               <p className="flex-1 min-w-0 leading-relaxed">
-                {purchaseError || paymentsError || ratingsError || itemsError}
+                {purchaseError || ratingsError || itemsError}
               </p>
               <button
                 type="button"
@@ -1525,7 +1091,6 @@ export function MainPage({
                   clearItemsError();
                   clearRatingsError();
                   clearPurchaseError();
-                  clearPaymentsError();
                 }}
                 aria-label="Dismiss error"
                 className="p-1 rounded-md text-red-800 hover:bg-red-100 transition-colors cursor-pointer"
@@ -1547,20 +1112,6 @@ export function MainPage({
             </div>
 
             <div className="flex flex-wrap items-center gap-2.5 shrink-0">
-              <button
-                type="button"
-                onClick={() => handleOpenNewRequest(null)}
-                disabled={!isBackendConfigured}
-                className={`min-h-[42px] px-4 py-2 rounded-xl text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 focus-visible:ring-offset-2 transition-colors duration-150 inline-flex items-center gap-2 whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-50 ${
-                  isRequestPrimaryView
-                    ? 'bg-blue-700 text-white hover:bg-blue-800'
-                    : 'border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 hover:text-slate-900'
-                }`}
-              >
-                <HandHelping className="w-4 h-4" aria-hidden="true" />
-                <span>New request</span>
-              </button>
-
               <button
                 type="button"
                 onClick={handleOpenAddItem}
@@ -1589,12 +1140,12 @@ export function MainPage({
                 </div>
                 <div>
                   <h2 className="font-display text-base font-bold text-slate-900">
-                    Set up your JDCOEM student profile to add, request, or accept items
+                    Set up your JDCOEM student profile to list, borrow, or buy items
                   </h2>
                   <p className="mt-1 text-sm text-slate-700 leading-relaxed">
-                    You can browse shared items and requests now. Saving your name, branch, semester
-                    number, and phone number is required before sharing or borrowing so classmates
-                    know who they are exchanging with.
+                    You can browse shared items now. Saving your name, branch, semester number, and
+                    phone number is required before listing or sending a private request so the
+                    other student can contact you.
                   </p>
                 </div>
               </div>
@@ -1738,7 +1289,7 @@ export function MainPage({
           >
             <div className="relative flex-1 max-w-lg w-full">
               <label htmlFor="campus-search" className="sr-only">
-                Search shared items, requests, reviews, or transactions
+                Search shared items, requests, or reviews
               </label>
               <Search
                 className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none"
@@ -1752,16 +1303,14 @@ export function MainPage({
                 onChange={(event) => setSearchQuery(event.target.value)}
                 placeholder={
                   activeView === 'items'
-                    ? 'Search items by name, lend/sale, price, student, or branch...'
-                    : activeView === 'purchase-requests'
-                      ? 'Search purchase requests by item, student, or status...'
-                      : activeView === 'profile-reviews'
-                        ? 'Search reviews by comment, author, or exchange...'
-                        : activeView === 'transactions'
-                          ? 'Search completed transactions by item, student, or amount...'
-                          : activeView === 'admin'
-                            ? 'Filter items or requests by title, student name, or UID...'
-                            : 'Search requests by description, student, or status...'
+                    ? 'Search items by name, lister, lend/sale, or price...'
+                    : activeView === 'borrow-requests'
+                      ? 'Search borrow requests by item, student, or status...'
+                      : activeView === 'purchase-requests'
+                        ? 'Search purchase requests by item, student, or status...'
+                        : activeView === 'profile-reviews'
+                          ? 'Search reviews by comment, author, or exchange...'
+                          : 'Filter items or requests by title, student name, or UID...'
                 }
                 className="w-full min-h-[42px] pl-10 pr-20 py-2 rounded-xl border border-slate-300 bg-white text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-700 focus:border-blue-700"
               />
@@ -1816,7 +1365,8 @@ export function MainPage({
                 currentUserId={user.uid}
                 currentUserEmail={user.email}
                 items={allItems}
-                requests={sharedRequests}
+                requests={allAdminRequests}
+                purchaseRequests={allAdminPurchaseRequests}
                 publicProfiles={publicProfiles}
                 publicProfilesById={publicProfilesById}
                 adminUids={adminUids}
@@ -1851,6 +1401,22 @@ export function MainPage({
                 }}
                 onClearSearch={handleClearSearch}
               />
+            ) : activeView === 'borrow-requests' ? (
+              <BorrowRequestsPanel
+                requests={borrowRequests}
+                currentUserId={user.uid}
+                searchQuery={searchQuery}
+                loading={borrowRequestsLoading}
+                updatingId={updatingRequestId}
+                isBackendConfigured={isBackendConfigured}
+                getRatingForRequestByUser={getRatingForRequestByUser}
+                onConfirmFulfilled={fulfillRequest}
+                onCancelRequest={cancelBorrowRequest}
+                onRateExchange={handleOpenCreateBorrowRating}
+                onEditRating={handleOpenEditRating}
+                onOpenProfileRatings={handleOpenProfileRatings}
+                onClearSearch={handleClearSearch}
+              />
             ) : activeView === 'purchase-requests' ? (
               <PurchaseRequestsPanel
                 requests={purchaseRequests}
@@ -1859,16 +1425,12 @@ export function MainPage({
                 loading={purchaseRequestsLoading}
                 updatingId={updatingPurchaseId}
                 isBackendConfigured={isBackendConfigured}
+                getRatingForRequestByUser={getRatingForRequestByUser}
                 onConfirmPayment={confirmPurchasePayment}
                 onCancelRequest={cancelPurchaseRequest}
+                onRatePurchase={handleOpenCreatePurchaseRating}
+                onEditRating={handleOpenEditRating}
                 onOpenProfileRatings={handleOpenProfileRatings}
-                onClearSearch={handleClearSearch}
-              />
-            ) : activeView === 'transactions' ? (
-              <TransactionsPanel
-                transactions={completedTransactions}
-                searchQuery={searchQuery}
-                loading={purchaseRequestsLoading || paymentsLoading}
                 onClearSearch={handleClearSearch}
               />
             ) : loading ? (
@@ -1880,17 +1442,12 @@ export function MainPage({
                   >
                     <div className="aspect-[4/3] w-full bg-slate-200" />
                     <div className="p-6 space-y-3">
-                      <div className="h-3 w-32 bg-slate-200 rounded" />
                       <div className="h-5 w-3/4 bg-slate-200 rounded" />
-                      <div className="h-3.5 w-full bg-slate-100 rounded" />
+                      <div className="h-3.5 w-1/2 bg-slate-100 rounded" />
                     </div>
                   </div>
                 ))}
               </div>
-            ) : activeView === 'shared-requests' ? (
-              renderRequestCards(filteredSharedRequests, true)
-            ) : activeView === 'my-requests' ? (
-              renderRequestCards(filteredMyRequests, false)
             ) : filteredAllItems.length === 0 ? (
               allItems.length === 0 ? (
                 <div className="bg-white border border-slate-200 rounded-2xl p-10 text-center max-w-xl mx-auto mt-6">
@@ -1965,42 +1522,20 @@ export function MainPage({
                   const isSold = item.status === 'Sold';
                   const authorPublic = publicProfilesById[item.authorId];
                   const authorDisplay = authorPublic?.displayName || item.authorName;
-                  const authorAcademic = formatBranchSemester(
-                    authorPublic?.branch,
-                    authorPublic?.semester
-                  );
-                  const myLinkedAcceptedExchanges = !isPermanentSale
-                    ? sharedRequests.filter(
-                        (req) =>
-                          req.itemId === item.id &&
-                          req.status === 'Accepted' &&
-                          (req.requesterId === user.uid || req.acceptedById === user.uid)
-                      )
-                    : [];
-                  const myLinkedUnratedFulfilledExchange = !isPermanentSale
-                    ? sharedRequests.find(
-                        (req) =>
-                          req.itemId === item.id &&
-                          req.status === 'Fulfilled' &&
-                          req.borrowerFulfilled &&
-                          req.lenderFulfilled &&
-                          Boolean(req.acceptedById) &&
-                          (req.requesterId === user.uid || req.acceptedById === user.uid) &&
-                          !getRatingForRequestByUser(req.id, user.uid)
-                      )
-                    : undefined;
+
                   const myPendingPurchaseAsBorrower =
                     isPermanentSale && !isOwner
                       ? pendingPurchaseRequests.find(
                           (req) => req.itemId === item.id && req.borrowerId === user.uid
                         )
                       : undefined;
-                  const pendingPurchasesAsLender =
-                    isPermanentSale && isOwner
-                      ? pendingPurchaseRequests.filter(
-                          (req) => req.itemId === item.id && req.lenderId === user.uid
+
+                  const myPendingBorrowAsBorrower =
+                    !isPermanentSale && !isOwner
+                      ? pendingBorrowRequests.find(
+                          (req) => req.itemId === item.id && req.requesterId === user.uid
                         )
-                      : [];
+                      : undefined;
 
                   return (
                     <article
@@ -2011,447 +1546,92 @@ export function MainPage({
                         <ItemPhoto src={item.photoUrl} alt={item.title} />
 
                         <div className="p-5 sm:p-6">
-                          <p className="text-xs font-medium text-slate-500 flex flex-wrap items-center gap-x-2 gap-y-1">
-                            <span
-                              className={
-                                isPermanentSale
-                                  ? 'text-emerald-700 font-semibold'
-                                  : 'text-blue-700 font-medium'
-                              }
-                            >
-                              {isPermanentSale ? 'Permanent Sale' : item.category}
-                            </span>
-                            <span aria-hidden="true">·</span>
-                            <span
-                              className={
-                                isPermanentSale ? 'font-semibold text-slate-900 tabular-nums' : ''
-                              }
-                            >
-                              {isPermanentSale ? formatInr(item.price) : 'Free borrow'}
-                            </span>
-                            <span aria-hidden="true">·</span>
-                            <span className={isSold ? 'font-semibold text-amber-700' : ''}>
-                              {item.status}
-                            </span>
-                            {isOwner && (
-                              <>
-                                <span aria-hidden="true">·</span>
-                                <span className="text-slate-700">Your item</span>
-                              </>
-                            )}
-                          </p>
-
-                          <h2 className="mt-2 font-display text-lg font-semibold text-slate-900 leading-snug">
-                            {item.title}
-                          </h2>
-
-                          <p className="mt-2 text-sm text-slate-600 leading-relaxed line-clamp-3">
-                            {item.description}
-                          </p>
-
-                          {isPermanentSale && isSold && (
-                            <p className="mt-3 text-xs font-medium text-emerald-800">
-                              Sold to{' '}
-                              {item.soldToId === user.uid
-                                ? 'You'
-                                : item.soldToName || 'a fellow student'}
-                            </p>
-                          )}
-
-                          {myPendingPurchaseAsBorrower && (
-                            <div className="mt-4 pt-4 border-t border-slate-100 space-y-2.5 text-xs">
-                              <div className="flex items-center justify-between gap-2">
-                                <span className="font-semibold text-amber-700 inline-flex items-center gap-1">
-                                  <Clock className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-                                  <span>Purchase request · Pending</span>
-                                </span>
-                                <button
-                                  type="button"
-                                  onClick={() => handleSelectView('purchase-requests')}
-                                  className="text-blue-700 font-medium hover:underline cursor-pointer shrink-0"
-                                >
-                                  Details
-                                </button>
-                              </div>
-
-                              <div className="flex flex-wrap items-center gap-x-3.5 gap-y-1">
-                                <span
-                                  className={`inline-flex items-center gap-1 ${
-                                    myPendingPurchaseAsBorrower.borrowerConfirmed
-                                      ? 'text-emerald-700 font-medium'
-                                      : 'text-slate-500'
-                                  }`}
-                                >
-                                  {myPendingPurchaseAsBorrower.borrowerConfirmed ? (
-                                    <CheckCircle2 className="w-3.5 h-3.5" aria-hidden="true" />
-                                  ) : (
-                                    <Clock className="w-3.5 h-3.5" aria-hidden="true" />
-                                  )}
-                                  <span>Payment made</span>
-                                </span>
-                                <span
-                                  className={`inline-flex items-center gap-1 ${
-                                    myPendingPurchaseAsBorrower.lenderConfirmed
-                                      ? 'text-emerald-700 font-medium'
-                                      : 'text-slate-500'
-                                  }`}
-                                >
-                                  {myPendingPurchaseAsBorrower.lenderConfirmed ? (
-                                    <CheckCircle2 className="w-3.5 h-3.5" aria-hidden="true" />
-                                  ) : (
-                                    <Clock className="w-3.5 h-3.5" aria-hidden="true" />
-                                  )}
-                                  <span>Payment received</span>
-                                </span>
-                              </div>
-
-                              <div className="flex flex-wrap items-center gap-2 pt-0.5">
-                                {!myPendingPurchaseAsBorrower.borrowerConfirmed ? (
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      void confirmPurchasePayment(myPendingPurchaseAsBorrower)
-                                    }
-                                    disabled={
-                                      updatingPurchaseId === myPendingPurchaseAsBorrower.id ||
-                                      !isBackendConfigured
-                                    }
-                                    className="flex-1 min-h-[34px] px-3 py-1.5 rounded-xl bg-emerald-700 text-white text-xs font-medium hover:bg-emerald-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-700 transition-colors inline-flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
-                                  >
-                                    {updatingPurchaseId === myPendingPurchaseAsBorrower.id ? (
-                                      <>
-                                        <Loader2
-                                          className="w-3.5 h-3.5 animate-spin"
-                                          aria-hidden="true"
-                                        />
-                                        <span>Updating...</span>
-                                      </>
-                                    ) : (
-                                      <>
-                                        <CheckCircle2 className="w-3.5 h-3.5" aria-hidden="true" />
-                                        <span>Payment made</span>
-                                      </>
-                                    )}
-                                  </button>
-                                ) : (
-                                  <p className="text-emerald-700 font-medium flex-1">
-                                    Confirmed · Waiting for lender.
-                                  </p>
-                                )}
-
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    void cancelPurchaseRequest(myPendingPurchaseAsBorrower)
-                                  }
-                                  disabled={
-                                    updatingPurchaseId === myPendingPurchaseAsBorrower.id ||
-                                    !isBackendConfigured
-                                  }
-                                  className="min-h-[34px] px-3 py-1.5 rounded-xl border border-slate-300 bg-white text-xs font-medium text-slate-700 hover:border-red-200 hover:bg-red-50 hover:text-red-700 transition-colors cursor-pointer disabled:opacity-50"
-                                >
-                                  Cancel
-                                </button>
-                              </div>
-                            </div>
-                          )}
-
-                          {pendingPurchasesAsLender.length > 0 && (
-                            <div className="mt-4 pt-4 border-t border-slate-100 space-y-3 text-xs">
-                              {pendingPurchasesAsLender.map((purchaseReq, index) => {
-                                const isUpdatingThis = updatingPurchaseId === purchaseReq.id;
-                                const ratingLabel =
-                                  purchaseReq.borrowerRatingCount > 0
-                                    ? `${purchaseReq.borrowerRatingAverage.toFixed(1)} (${purchaseReq.borrowerRatingCount})`
-                                    : 'No ratings';
-
-                                return (
-                                  <div
-                                    key={purchaseReq.id}
-                                    className={`space-y-2 ${
-                                      index > 0 ? 'pt-3 border-t border-slate-100' : ''
-                                    }`}
-                                  >
-                                    <div className="flex items-center justify-between gap-2">
-                                      <span className="font-semibold text-slate-900 truncate">
-                                        Buyer request: {purchaseReq.borrowerName}
-                                      </span>
-                                      <button
-                                        type="button"
-                                        onClick={() => handleSelectView('purchase-requests')}
-                                        className="text-blue-700 font-medium hover:underline cursor-pointer shrink-0"
-                                      >
-                                        Details
-                                      </button>
-                                    </div>
-
-                                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-slate-600">
-                                      <a
-                                        href={`tel:${purchaseReq.borrowerPhone.replace(/[^+\d]/g, '')}`}
-                                        className="inline-flex items-center gap-1 text-blue-700 font-medium hover:underline tabular-nums"
-                                      >
-                                        <Phone className="w-3 h-3 shrink-0" aria-hidden="true" />
-                                        <span>{purchaseReq.borrowerPhone}</span>
-                                      </a>
-                                      <button
-                                        type="button"
-                                        onClick={() =>
-                                          handleOpenProfileRatings(
-                                            purchaseReq.borrowerId,
-                                            purchaseReq.borrowerName
-                                          )
-                                        }
-                                        className="inline-flex items-center gap-1 hover:text-blue-700 hover:underline tabular-nums cursor-pointer"
-                                      >
-                                        <Star
-                                          className={`w-3 h-3 shrink-0 ${
-                                            purchaseReq.borrowerRatingCount > 0
-                                              ? 'fill-amber-400 text-amber-500'
-                                              : 'text-slate-300'
-                                          }`}
-                                          aria-hidden="true"
-                                        />
-                                        <span>{ratingLabel}</span>
-                                      </button>
-                                    </div>
-
-                                    <div className="flex flex-wrap items-center gap-2 pt-0.5">
-                                      {!purchaseReq.lenderConfirmed ? (
-                                        <button
-                                          type="button"
-                                          onClick={() => void confirmPurchasePayment(purchaseReq)}
-                                          disabled={isUpdatingThis || !isBackendConfigured}
-                                          className="flex-1 min-h-[34px] px-3 py-1.5 rounded-xl bg-emerald-700 text-white text-xs font-medium hover:bg-emerald-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-700 transition-colors inline-flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
-                                        >
-                                          {isUpdatingThis ? (
-                                            <>
-                                              <Loader2
-                                                className="w-3.5 h-3.5 animate-spin"
-                                                aria-hidden="true"
-                                              />
-                                              <span>Updating...</span>
-                                            </>
-                                          ) : (
-                                            <>
-                                              <CheckCircle2
-                                                className="w-3.5 h-3.5"
-                                                aria-hidden="true"
-                                              />
-                                              <span>Payment received</span>
-                                            </>
-                                          )}
-                                        </button>
-                                      ) : (
-                                        <p className="text-emerald-700 font-medium flex-1">
-                                          Confirmed · Waiting for buyer.
-                                        </p>
-                                      )}
-
-                                      <button
-                                        type="button"
-                                        onClick={() => void cancelPurchaseRequest(purchaseReq)}
-                                        disabled={isUpdatingThis || !isBackendConfigured}
-                                        className="min-h-[34px] px-3 py-1.5 rounded-xl border border-slate-300 bg-white text-xs font-medium text-slate-700 hover:border-red-200 hover:bg-red-50 hover:text-red-700 transition-colors cursor-pointer disabled:opacity-50"
-                                      >
-                                        Cancel
-                                      </button>
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          )}
-
-                          {myLinkedAcceptedExchanges.length > 0 && (
-                            <div className="mt-4 pt-4 border-t border-slate-100 space-y-3.5">
-                              {myLinkedAcceptedExchanges.map((exchangeReq, index) => {
-                                const isBorrower = exchangeReq.requesterId === user.uid;
-                                const userConfirmed = isBorrower
-                                  ? exchangeReq.borrowerFulfilled
-                                  : exchangeReq.lenderFulfilled;
-                                const otherConfirmed = isBorrower
-                                  ? exchangeReq.lenderFulfilled
-                                  : exchangeReq.borrowerFulfilled;
-                                const otherName = isBorrower
-                                  ? publicProfilesById[exchangeReq.acceptedById || '']
-                                      ?.displayName ||
-                                    exchangeReq.acceptedByName ||
-                                    'Lender'
-                                  : publicProfilesById[exchangeReq.requesterId]?.displayName ||
-                                    exchangeReq.requesterName;
-                                const isUpdatingExchange = updatingRequestId === exchangeReq.id;
-
-                                return (
-                                  <div
-                                    key={exchangeReq.id}
-                                    className={`space-y-2 text-xs ${
-                                      index > 0 ? 'pt-3 border-t border-slate-100' : ''
-                                    }`}
-                                  >
-                                    <div className="flex items-center justify-between gap-2">
-                                      <span className="font-semibold text-slate-900 truncate">
-                                        Active exchange with {otherName}
-                                      </span>
-                                      <span className="text-slate-500 shrink-0">
-                                        {isBorrower ? 'You: Borrower' : 'You: Lender'}
-                                      </span>
-                                    </div>
-                                    <div className="flex flex-wrap items-center gap-x-3.5 gap-y-1">
-                                      <span
-                                        className={`inline-flex items-center gap-1 ${
-                                          exchangeReq.borrowerFulfilled
-                                            ? 'text-emerald-700 font-medium'
-                                            : 'text-slate-500'
-                                        }`}
-                                      >
-                                        {exchangeReq.borrowerFulfilled ? (
-                                          <CheckCircle2 className="w-3.5 h-3.5" aria-hidden="true" />
-                                        ) : (
-                                          <Clock className="w-3.5 h-3.5" aria-hidden="true" />
-                                        )}
-                                        <span>Borrower</span>
-                                      </span>
-                                      <span
-                                        className={`inline-flex items-center gap-1 ${
-                                          exchangeReq.lenderFulfilled
-                                            ? 'text-emerald-700 font-medium'
-                                            : 'text-slate-500'
-                                        }`}
-                                      >
-                                        {exchangeReq.lenderFulfilled ? (
-                                          <CheckCircle2 className="w-3.5 h-3.5" aria-hidden="true" />
-                                        ) : (
-                                          <Clock className="w-3.5 h-3.5" aria-hidden="true" />
-                                        )}
-                                        <span>Lender</span>
-                                      </span>
-                                    </div>
-                                    {!userConfirmed ? (
-                                      <button
-                                        type="button"
-                                        onClick={() => void fulfillRequest(exchangeReq)}
-                                        disabled={isUpdatingExchange || !isBackendConfigured}
-                                        className="w-full min-h-[36px] px-3 py-1.5 rounded-xl bg-emerald-700 text-white text-xs font-medium hover:bg-emerald-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-700 transition-colors inline-flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
-                                      >
-                                        {isUpdatingExchange ? (
-                                          <>
-                                            <Loader2
-                                              className="w-3.5 h-3.5 animate-spin"
-                                              aria-hidden="true"
-                                            />
-                                            <span>Updating...</span>
-                                          </>
-                                        ) : (
-                                          <>
-                                            <CheckCircle2
-                                              className="w-3.5 h-3.5"
-                                              aria-hidden="true"
-                                            />
-                                            <span>
-                                              {otherConfirmed
-                                                ? 'Mark Fulfilled (complete exchange)'
-                                                : 'Mark Fulfilled'}
-                                            </span>
-                                          </>
-                                        )}
-                                      </button>
-                                    ) : (
-                                      <p className="text-emerald-700 font-medium">
-                                        You marked Fulfilled · Waiting for{' '}
-                                        {isBorrower ? 'lender' : 'borrower'} before ratings unlock.
-                                      </p>
-                                    )}
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          )}
-
-                          {myLinkedUnratedFulfilledExchange && (
-                            <div className="mt-4 pt-3.5 border-t border-slate-100 flex items-center justify-between gap-3 text-xs">
-                              <span className="font-medium text-emerald-700">
-                                Exchange fulfilled · Ratings unlocked
+                          <div className="flex items-start justify-between gap-3">
+                            <h2 className="font-display text-lg font-semibold text-slate-900 leading-snug">
+                              {item.title}
+                            </h2>
+                            {isPermanentSale && (
+                              <span className="font-display text-base font-bold text-emerald-700 tabular-nums shrink-0">
+                                {formatInr(item.price)}
                               </span>
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  handleOpenCreateRating(myLinkedUnratedFulfilledExchange)
-                                }
-                                disabled={!isBackendConfigured}
-                                className="min-h-[34px] px-3 py-1 rounded-lg bg-blue-700 text-white text-xs font-medium hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 inline-flex items-center gap-1 shrink-0 cursor-pointer disabled:opacity-50"
-                              >
-                                <Star className="w-3 h-3" aria-hidden="true" />
-                                <span>
-                                  {myLinkedUnratedFulfilledExchange.requesterId === user.uid
-                                    ? 'Rate lender'
-                                    : 'Rate borrower'}
-                                </span>
-                              </button>
-                            </div>
-                          )}
+                            )}
+                          </div>
+
+                          <p className="mt-2 text-sm text-slate-600 truncate">
+                            Listed by{' '}
+                            <span className="font-medium text-slate-900">
+                              {isOwner ? 'You' : authorDisplay}
+                            </span>
+                          </p>
                         </div>
                       </div>
 
-                      <div className="px-5 sm:px-6 py-4 bg-slate-50/50 border-t border-slate-100 flex flex-wrap items-end justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className="text-xs font-medium text-slate-700 truncate">
-                            {isOwner
-                              ? isPermanentSale
-                                ? 'Listed by You'
-                                : 'Added by You'
-                              : isPermanentSale
-                                ? `Listed by ${authorDisplay}`
-                                : `Added by ${authorDisplay}`}
-                          </p>
-                          {authorAcademic && (
-                            <p className="text-[11px] text-slate-500 truncate mt-0.5">
-                              {authorAcademic}
-                            </p>
+                      <div className="px-5 sm:px-6 py-4 bg-slate-50/50 border-t border-slate-100 flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-2">
+                          {isPermanentSale && isSold && (
+                            <span className="text-xs font-semibold text-slate-500">Sold</span>
                           )}
-                          <StarRatingDisplay
-                            userId={item.authorId}
-                            userName={isOwner ? displayName : authorDisplay}
-                            summary={ratingSummaryByUserId[item.authorId]}
-                            onOpenProfile={handleOpenProfileRatings}
-                          />
-                          <p className="text-xs text-slate-500 flex items-center gap-1 truncate mt-0.5 tabular-nums">
-                            <Phone className="w-3 h-3 shrink-0" aria-hidden="true" />
-                            <span>{item.authorPhone}</span>
-                          </p>
                         </div>
 
                         <div className="flex items-center gap-2 shrink-0">
-                          {!isOwner && isPermanentSale && !isSold && !myPendingPurchaseAsBorrower && (
-                            <button
-                              type="button"
-                              onClick={() => handleOpenBuyItem(item)}
-                              disabled={!isBackendConfigured}
-                              className="min-h-[38px] px-3.5 py-1.5 rounded-xl bg-emerald-700 text-white text-xs font-medium hover:bg-emerald-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-700 transition-colors inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50 tabular-nums"
-                            >
-                              <ShoppingBag className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-                              <span>Buy · {formatInr(item.price)}</span>
-                            </button>
-                          )}
-                          {!isOwner && isPermanentSale && !isSold && myPendingPurchaseAsBorrower && (
-                            <button
-                              type="button"
-                              onClick={() => handleSelectView('purchase-requests')}
-                              className="min-h-[38px] px-3.5 py-1.5 rounded-xl border border-amber-200 bg-amber-50 text-amber-800 text-xs font-medium hover:bg-amber-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-600 transition-colors inline-flex items-center gap-1.5 cursor-pointer"
-                            >
-                              <Clock className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-                              <span>Pending</span>
-                            </button>
-                          )}
-                          {!isOwner && !isPermanentSale && (
-                            <button
-                              type="button"
-                              onClick={() => handleOpenNewRequest(item)}
-                              disabled={!isBackendConfigured}
-                              className="min-h-[38px] px-3.5 py-1.5 rounded-xl bg-blue-700 text-white text-xs font-medium hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 transition-colors cursor-pointer disabled:opacity-50"
-                            >
-                              Request
-                            </button>
-                          )}
+                          {!isOwner &&
+                            isPermanentSale &&
+                            !isSold &&
+                            !myPendingPurchaseAsBorrower && (
+                              <button
+                                type="button"
+                                onClick={() => handleOpenBuyItem(item)}
+                                disabled={!isBackendConfigured}
+                                className="min-h-[38px] px-4 py-1.5 rounded-xl bg-emerald-700 text-white text-xs sm:text-sm font-medium hover:bg-emerald-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-700 transition-colors inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                              >
+                                <ShoppingBag className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                                <span>Buy</span>
+                              </button>
+                            )}
+
+                          {!isOwner &&
+                            isPermanentSale &&
+                            !isSold &&
+                            myPendingPurchaseAsBorrower && (
+                              <button
+                                type="button"
+                                onClick={() => handleSelectView('purchase-requests')}
+                                className="min-h-[38px] px-3.5 py-1.5 rounded-xl border border-amber-200 bg-amber-50 text-amber-800 text-xs font-medium hover:bg-amber-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-600 transition-colors inline-flex items-center gap-1.5 cursor-pointer"
+                              >
+                                <Clock className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                                <span>Pending</span>
+                              </button>
+                            )}
+
+                          {!isOwner &&
+                            !isPermanentSale &&
+                            !isSold &&
+                            !myPendingBorrowAsBorrower && (
+                              <button
+                                type="button"
+                                onClick={() => handleOpenBorrowItem(item)}
+                                disabled={!isBackendConfigured}
+                                className="min-h-[38px] px-4 py-1.5 rounded-xl bg-blue-700 text-white text-xs sm:text-sm font-medium hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 transition-colors inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                              >
+                                <HandHelping className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                                <span>Borrow</span>
+                              </button>
+                            )}
+
+                          {!isOwner &&
+                            !isPermanentSale &&
+                            !isSold &&
+                            myPendingBorrowAsBorrower && (
+                              <button
+                                type="button"
+                                onClick={() => handleSelectView('borrow-requests')}
+                                className="min-h-[38px] px-3.5 py-1.5 rounded-xl border border-amber-200 bg-amber-50 text-amber-800 text-xs font-medium hover:bg-amber-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-600 transition-colors inline-flex items-center gap-1.5 cursor-pointer"
+                              >
+                                <Clock className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                                <span>Pending</span>
+                              </button>
+                            )}
+
                           {canDelete && (
                             <button
                               type="button"
@@ -2503,17 +1683,6 @@ export function MainPage({
         onSubmit={addItem}
       />
 
-      <NewRequestModal
-        isOpen={isNewRequestModalOpen}
-        linkedItem={linkedRequestItem}
-        submitting={submittingRequest}
-        onClose={() => {
-          setIsNewRequestModalOpen(false);
-          setLinkedRequestItem(null);
-        }}
-        onSubmit={createRequest}
-      />
-
       <DeleteConfirmModal
         target={deleteTarget}
         deleting={Boolean(deleteTarget && deletingId === deleteTarget.id)}
@@ -2526,6 +1695,30 @@ export function MainPage({
         submitting={submittingRating}
         onClose={() => setRateTarget(null)}
         onSubmit={handleRateSubmit}
+      />
+
+      <BorrowRequestModal
+        item={borrowItemTarget}
+        lenderDisplayName={
+          borrowItemTarget
+            ? publicProfilesById[borrowItemTarget.authorId]?.displayName ||
+              borrowItemTarget.authorName
+            : ''
+        }
+        borrowerName={displayName}
+        borrowerPhone={userPhone || ''}
+        borrowerRatingAverage={ratingSummaryByUserId[user.uid]?.averageScore ?? 0}
+        borrowerRatingCount={ratingSummaryByUserId[user.uid]?.count ?? 0}
+        submitting={submittingRequest}
+        onClose={() => setBorrowItemTarget(null)}
+        onConfirmSend={(targetItem, note) =>
+          createBorrowRequest(
+            targetItem,
+            note,
+            ratingSummaryByUserId[user.uid]?.averageScore ?? 0,
+            ratingSummaryByUserId[user.uid]?.count ?? 0
+          )
+        }
       />
 
       <PurchaseRequestModal

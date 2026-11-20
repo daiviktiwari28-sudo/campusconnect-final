@@ -10,7 +10,7 @@ import {
 interface StudentProfileModalProps {
   isOpen: boolean;
   mode: 'complete' | 'edit';
-  reason: 'add' | 'request' | 'accept' | 'buy' | null;
+  reason: 'add' | 'borrow' | 'buy' | null;
   initialProfile: StudentProfileInput;
   savingProfile: boolean;
   profileError: string | null;
@@ -80,10 +80,8 @@ export function StudentProfileModal({
       : reason === 'add'
         ? 'Complete your student profile (name, branch, semester, and phone number) before listing an item.'
         : reason === 'buy'
-          ? 'Complete your student profile (name, branch, semester, and phone number) before buying an item.'
-          : reason === 'accept'
-            ? 'Complete your student profile (name, branch, semester, and phone number) before accepting a request.'
-            : 'Complete your student profile (name, branch, semester, and phone number) before posting a request.';
+          ? 'Complete your student profile (name, branch, semester, and phone number) before sending a purchase request.'
+          : 'Complete your student profile (name, branch, semester, and phone number) before sending a borrow request.';
 
   return (
     <div
@@ -241,8 +239,8 @@ export function StudentProfileModal({
               className="mt-1.5 w-full min-h-[44px] px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-700 focus:border-blue-700 disabled:bg-slate-50"
             />
             <p className="mt-1 text-xs text-slate-500">
-              Used only on items you lend or requests you post/accept—never shown in public
-              reviews.
+              Shared privately only with the involved student when a borrow or purchase request is
+              sent—never displayed publicly on item cards or reviews.
             </p>
           </div>
 

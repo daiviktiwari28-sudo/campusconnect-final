@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   addDoc,
   collection,
@@ -10,6 +10,7 @@ import {
   serverTimestamp,
   Timestamp,
   where,
+  writeBatch,
 } from 'firebase/firestore';
 import {
   CAMPUS_ITEM_LIMITS,
@@ -18,6 +19,7 @@ import {
   type CampusItem,
   type CampusRequest,
   type ListingType,
+  type PurchaseParticipantRole,
   type RequestStatus,
 } from '../data/campusItems';
 import type { CampusUser } from './useAuth';
@@ -25,6 +27,7 @@ import { db, handleFirestoreError, isFirebaseConfigured, OperationType } from '.
 
 const ITEMS_COLLECTION = 'campusItems';
 const REQUESTS_COLLECTION = 'campusRequests';
+const BORROW_LOCKS_COLLECTION = 'borrowRequestLocks';
 
 function isAllowedCategory(value: unknown): value is CampusCategory {
   return (
@@ -39,46 +42,126 @@ function isAllowedCategory(value: unknown): value is CampusCategory {
 }
 
 function isAllowedRequestStatus(value: unknown): value is RequestStatus {
-  return value === 'Open' || value === 'Accepted' || value === 'Fulfilled';
+  return (
+    value === 'Pending' ||
+    value === 'Open' ||
+    value === 'Accepted' ||
+    value === 'Fulfilled' ||
+    value === 'Cancelled'
+  );
+}
+
+function isAllowedRole(value: unknown): value is PurchaseParticipantRole {
+  return value === 'borrower' || value === 'lender';
 }
 
 function toMillis(value: unknown): number {
   return value instanceof Timestamp ? value.toMillis() : Date.now();
 }
 
-export interface NewRequestAlert {
-  id: string;
-  requesterName: string;
-  description: string;
+function toNullableMillis(value: unknown): number | null {
+  return value instanceof Timestamp ? value.toMillis() : null;
 }
 
-export function useCampusItems(user: CampusUser, userPhone: string | null, isAdmin: boolean) {
+function getBorrowLockDocId(itemId: string, borrowerId: string): string {
+  return `${itemId}_${borrowerId}`;
+}
+
+function mapBorrowRequestDoc(id: string, data: Record<string, unknown>): CampusRequest {
+  const status: RequestStatus = isAllowedRequestStatus(data.status) ? data.status : 'Pending';
+  const borrowerFulfilled =
+    typeof data.borrowerFulfilled === 'boolean'
+      ? data.borrowerFulfilled
+      : status === 'Fulfilled';
+  const lenderFulfilled =
+    typeof data.lenderFulfilled === 'boolean'
+      ? data.lenderFulfilled
+      : status === 'Fulfilled';
+
+  return {
+    id,
+    description: typeof data.description === 'string' ? data.description : '',
+    itemId: typeof data.itemId === 'string' ? data.itemId : null,
+    itemTitle: typeof data.itemTitle === 'string' ? data.itemTitle : null,
+    itemPhotoUrl: typeof data.itemPhotoUrl === 'string' ? data.itemPhotoUrl : null,
+    status,
+    requesterId: typeof data.requesterId === 'string' ? data.requesterId : '',
+    requesterName:
+      typeof data.requesterName === 'string' && data.requesterName.trim()
+        ? data.requesterName
+        : 'Campus Student',
+    requesterPhone: typeof data.requesterPhone === 'string' ? data.requesterPhone : '',
+    borrowerRatingAverage:
+      typeof data.borrowerRatingAverage === 'number' &&
+      Number.isFinite(data.borrowerRatingAverage)
+        ? data.borrowerRatingAverage
+        : 0,
+    borrowerRatingCount:
+      typeof data.borrowerRatingCount === 'number' &&
+      Number.isFinite(data.borrowerRatingCount)
+        ? data.borrowerRatingCount
+        : 0,
+    acceptedById: typeof data.acceptedById === 'string' ? data.acceptedById : null,
+    acceptedByName: typeof data.acceptedByName === 'string' ? data.acceptedByName : null,
+    acceptedByPhone: typeof data.acceptedByPhone === 'string' ? data.acceptedByPhone : null,
+    borrowerFulfilled,
+    borrowerFulfilledAtMs: toNullableMillis(data.borrowerFulfilledAt),
+    lenderFulfilled,
+    lenderFulfilledAtMs: toNullableMillis(data.lenderFulfilledAt),
+    completedAtMs: toNullableMillis(data.completedAt),
+    cancelledAtMs: toNullableMillis(data.cancelledAt),
+    cancelledById: typeof data.cancelledById === 'string' ? data.cancelledById : null,
+    cancelledByRole: isAllowedRole(data.cancelledByRole) ? data.cancelledByRole : null,
+    createdAtMs: toMillis(data.createdAt),
+    updatedAtMs: toMillis(data.updatedAt ?? data.createdAt),
+  };
+}
+
+export function useCampusItems(
+  user: CampusUser,
+  displayName: string,
+  userPhone: string | null,
+  isAdmin: boolean
+) {
   const [sharedItems, setSharedItems] = useState<CampusItem[]>([]);
-  const [sharedRequests, setSharedRequests] = useState<CampusRequest[]>([]);
+  const [borrowerRequests, setBorrowerRequests] = useState<CampusRequest[]>([]);
+  const [lenderRequests, setLenderRequests] = useState<CampusRequest[]>([]);
+  const [allAdminRequests, setAllAdminRequests] = useState<CampusRequest[]>([]);
   const [loading, setLoading] = useState<boolean>(Boolean(db && isFirebaseConfigured));
+  const [borrowRequestsLoading, setBorrowRequestsLoading] = useState<boolean>(
+    Boolean(db && isFirebaseConfigured)
+  );
   const [submittingItem, setSubmittingItem] = useState<boolean>(false);
   const [submittingRequest, setSubmittingRequest] = useState<boolean>(false);
   const [updatingRequestId, setUpdatingRequestId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [itemsError, setItemsError] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
-  const [newRequestAlert, setNewRequestAlert] = useState<NewRequestAlert | null>(null);
+  const [incomingBorrowAlert, setIncomingBorrowAlert] = useState<CampusRequest | null>(null);
+
+  const initialLenderLoadRef = useRef<boolean>(true);
+  const knownLenderRequestIdsRef = useRef<Set<string>>(new Set());
 
   const isBackendConfigured = Boolean(db && isFirebaseConfigured);
 
   useEffect(() => {
     if (!db || !isFirebaseConfigured || !user.uid) {
       setLoading(false);
+      setBorrowRequestsLoading(false);
       return;
     }
 
     setLoading(true);
-    let itemsLoaded = false;
-    let requestsLoaded = false;
+    setBorrowRequestsLoading(true);
+    initialLenderLoadRef.current = true;
+    knownLenderRequestIdsRef.current = new Set();
 
-    const markReadyIfDone = () => {
-      if (itemsLoaded && requestsLoaded) {
-        setLoading(false);
+    let borrowerLoaded = false;
+    let lenderLoaded = false;
+
+    const finishRequestsIfReady = () => {
+      if (borrowerLoaded && lenderLoaded) {
+        setBorrowRequestsLoading(false);
       }
     };
 
@@ -103,7 +186,9 @@ export function useCampusItems(user: CampusUser, userPhone: string | null, isAdm
             const data = docSnap.data();
             const listingType: ListingType = data.listingType === 'sell' ? 'sell' : 'lend';
             const price =
-              listingType === 'sell' && typeof data.price === 'number' && Number.isFinite(data.price)
+              listingType === 'sell' &&
+              typeof data.price === 'number' &&
+              Number.isFinite(data.price)
                 ? data.price
                 : 0;
             return {
@@ -136,12 +221,10 @@ export function useCampusItems(user: CampusUser, userPhone: string | null, isAdm
 
         loaded.sort((a, b) => b.createdAtMs - a.createdAtMs);
         setSharedItems(loaded);
-        itemsLoaded = true;
-        markReadyIfDone();
+        setLoading(false);
       },
       (err) => {
-        itemsLoaded = true;
-        markReadyIfDone();
+        setLoading(false);
         setItemsError(
           'Could not sync shared items from Cloud Firestore right now. Please check your connection or permissions.'
         );
@@ -153,92 +236,58 @@ export function useCampusItems(user: CampusUser, userPhone: string | null, isAdm
       }
     );
 
-    const requestsQuery = query(
+    const borrowerQuery = query(
       collection(db, REQUESTS_COLLECTION),
-      where('visibility', '==', 'campus')
+      where('requesterId', '==', user.uid)
+    );
+    const lenderQuery = query(
+      collection(db, REQUESTS_COLLECTION),
+      where('acceptedById', '==', user.uid)
     );
 
-    const unsubscribeRequests = onSnapshot(
-      requestsQuery,
+    const unsubBorrower = onSnapshot(
+      borrowerQuery,
       (snapshot) => {
-        const wasAlreadyLoaded = requestsLoaded;
-
-        if (wasAlreadyLoaded) {
-          const addedOpenFromOthers = snapshot
-            .docChanges()
-            .filter((change) => change.type === 'added')
-            .map((change) => ({
-              id: change.doc.id,
-              data: change.doc.data(),
-            }))
-            .filter(
-              ({ data }) =>
-                data.status === 'Open' &&
-                typeof data.requesterId === 'string' &&
-                data.requesterId !== user.uid
-            );
-
-          if (addedOpenFromOthers.length > 0) {
-            const latest = addedOpenFromOthers[addedOpenFromOthers.length - 1];
-            setNewRequestAlert({
-              id: latest.id,
-              requesterName:
-                typeof latest.data.requesterName === 'string' && latest.data.requesterName.trim()
-                  ? latest.data.requesterName
-                  : 'A fellow student',
-              description:
-                typeof latest.data.description === 'string' ? latest.data.description : 'New request',
-            });
-          }
-        }
-
-        const loaded: CampusRequest[] = snapshot.docs.map((docSnap) => {
-          const data = docSnap.data();
-          const status = isAllowedRequestStatus(data.status) ? data.status : 'Open';
-          const borrowerFulfilled =
-            typeof data.borrowerFulfilled === 'boolean'
-              ? data.borrowerFulfilled
-              : status === 'Fulfilled';
-          const lenderFulfilled =
-            typeof data.lenderFulfilled === 'boolean'
-              ? data.lenderFulfilled
-              : status === 'Fulfilled';
-
-          return {
-            id: docSnap.id,
-            description: typeof data.description === 'string' ? data.description : '',
-            itemId: typeof data.itemId === 'string' ? data.itemId : null,
-            itemTitle: typeof data.itemTitle === 'string' ? data.itemTitle : null,
-            itemPhotoUrl: typeof data.itemPhotoUrl === 'string' ? data.itemPhotoUrl : null,
-            status,
-            requesterId: typeof data.requesterId === 'string' ? data.requesterId : '',
-            requesterName:
-              typeof data.requesterName === 'string' && data.requesterName.trim()
-                ? data.requesterName
-                : 'Campus Student',
-            requesterPhone:
-              typeof data.requesterPhone === 'string' ? data.requesterPhone : '',
-            acceptedById: typeof data.acceptedById === 'string' ? data.acceptedById : null,
-            acceptedByName: typeof data.acceptedByName === 'string' ? data.acceptedByName : null,
-            acceptedByPhone: typeof data.acceptedByPhone === 'string' ? data.acceptedByPhone : null,
-            borrowerFulfilled,
-            lenderFulfilled,
-            createdAtMs: toMillis(data.createdAt),
-            updatedAtMs: toMillis(data.updatedAt ?? data.createdAt),
-          };
-        });
-
-        loaded.sort((a, b) => b.createdAtMs - a.createdAtMs);
-        setSharedRequests(loaded);
-        requestsLoaded = true;
-        markReadyIfDone();
+        setBorrowerRequests(snapshot.docs.map((d) => mapBorrowRequestDoc(d.id, d.data())));
+        borrowerLoaded = true;
+        finishRequestsIfReady();
       },
       (err) => {
-        requestsLoaded = true;
-        markReadyIfDone();
-        setItemsError(
-          'Could not sync shared requests from Cloud Firestore right now. Please check your connection or permissions.'
-        );
+        borrowerLoaded = true;
+        finishRequestsIfReady();
+        try {
+          handleFirestoreError(err, OperationType.LIST, REQUESTS_COLLECTION);
+        } catch {
+          // Structured error logged in handleFirestoreError
+        }
+      }
+    );
+
+    const unsubLender = onSnapshot(
+      lenderQuery,
+      (snapshot) => {
+        const mapped = snapshot.docs.map((d) => mapBorrowRequestDoc(d.id, d.data()));
+        if (initialLenderLoadRef.current) {
+          knownLenderRequestIdsRef.current = new Set(mapped.map((r) => r.id));
+          initialLenderLoadRef.current = false;
+        } else {
+          const newestIncoming = mapped.find(
+            (r) => r.status === 'Pending' && !knownLenderRequestIdsRef.current.has(r.id)
+          );
+          if (newestIncoming) {
+            setIncomingBorrowAlert(newestIncoming);
+          }
+          for (const r of mapped) {
+            knownLenderRequestIdsRef.current.add(r.id);
+          }
+        }
+        setLenderRequests(mapped);
+        lenderLoaded = true;
+        finishRequestsIfReady();
+      },
+      (err) => {
+        lenderLoaded = true;
+        finishRequestsIfReady();
         try {
           handleFirestoreError(err, OperationType.LIST, REQUESTS_COLLECTION);
         } catch {
@@ -249,17 +298,64 @@ export function useCampusItems(user: CampusUser, userPhone: string | null, isAdm
 
     return () => {
       unsubscribeItems();
-      unsubscribeRequests();
+      unsubBorrower();
+      unsubLender();
     };
   }, [user.uid]);
+
+  useEffect(() => {
+    if (!db || !isFirebaseConfigured || !user.uid || !isAdmin) {
+      setAllAdminRequests([]);
+      return;
+    }
+
+    const adminQuery = query(collection(db, REQUESTS_COLLECTION));
+    const unsubscribe = onSnapshot(
+      adminQuery,
+      (snapshot) => {
+        const mapped = snapshot.docs
+          .map((d) => mapBorrowRequestDoc(d.id, d.data()))
+          .sort((a, b) => b.updatedAtMs - a.updatedAtMs);
+        setAllAdminRequests(mapped);
+      },
+      (err) => {
+        try {
+          handleFirestoreError(err, OperationType.LIST, REQUESTS_COLLECTION);
+        } catch {
+          // Structured error logged in handleFirestoreError
+        }
+      }
+    );
+
+    return () => {
+      unsubscribe();
+    };
+  }, [isAdmin, user.uid]);
 
   const allItems = useMemo(() => {
     return sharedItems;
   }, [sharedItems]);
 
-  const myRequests = useMemo(() => {
-    return sharedRequests.filter((req) => req.requesterId === user.uid);
-  }, [sharedRequests, user.uid]);
+  const borrowRequests = useMemo<CampusRequest[]>(() => {
+    const byId = new Map<string, CampusRequest>();
+    for (const req of borrowerRequests) byId.set(req.id, req);
+    for (const req of lenderRequests) byId.set(req.id, req);
+    return Array.from(byId.values()).sort((a, b) => {
+      const aActive = a.status === 'Pending' || a.status === 'Accepted';
+      const bActive = b.status === 'Pending' || b.status === 'Accepted';
+      if (aActive && !bActive) return -1;
+      if (!aActive && bActive) return 1;
+      return b.updatedAtMs - a.updatedAtMs;
+    });
+  }, [borrowerRequests, lenderRequests]);
+
+  const pendingBorrowRequests = useMemo(
+    () =>
+      borrowRequests.filter(
+        (req) => req.status === 'Pending' || req.status === 'Accepted'
+      ),
+    [borrowRequests]
+  );
 
   const addItem = useCallback(
     async (
@@ -333,10 +429,11 @@ export function useCampusItems(user: CampusUser, userPhone: string | null, isAdm
       setStatusMessage(null);
 
       try {
-        const safeAuthorName = (user.displayName?.trim() || 'Campus Student').slice(
-          0,
-          CAMPUS_ITEM_LIMITS.authorNameMax
-        );
+        const safeAuthorName = (
+          displayName.trim() ||
+          user.displayName?.trim() ||
+          'Campus Student'
+        ).slice(0, CAMPUS_ITEM_LIMITS.authorNameMax);
         const safePhone = normalizedPhone.slice(0, CAMPUS_ITEM_LIMITS.phoneMax);
 
         await addDoc(collection(db, ITEMS_COLLECTION), {
@@ -378,7 +475,7 @@ export function useCampusItems(user: CampusUser, userPhone: string | null, isAdm
         setSubmittingItem(false);
       }
     },
-    [user.displayName, user.uid, userPhone]
+    [displayName, user.displayName, user.uid, userPhone]
   );
 
   const deleteItem = useCallback(
@@ -425,191 +522,153 @@ export function useCampusItems(user: CampusUser, userPhone: string | null, isAdm
     [isAdmin, user.uid]
   );
 
-  const createRequest = useCallback(
-    async (rawDescription: string, linkedItem?: CampusItem | null): Promise<boolean> => {
-      const normalizedPhone = userPhone?.trim() || '';
-      if (normalizedPhone.length < CAMPUS_ITEM_LIMITS.phoneMin) {
-        setItemsError('Please complete your student profile before creating a request.');
-        return false;
-      }
-
+  const createBorrowRequest = useCallback(
+    async (
+      item: CampusItem,
+      rawNote: string,
+      borrowerRatingAverage: number,
+      borrowerRatingCount: number
+    ): Promise<boolean> => {
       if (!db || !isFirebaseConfigured) {
-        setItemsError(
-          'Shared database is not configured. Connect Firebase in firebase-applet-config.json to post requests.'
-        );
+        setItemsError('Shared database is not configured.');
         return false;
       }
 
-      const description = rawDescription.trim();
-      if (
-        description.length < CAMPUS_ITEM_LIMITS.requestDescriptionMin ||
-        description.length > CAMPUS_ITEM_LIMITS.requestDescriptionMax
-      ) {
-        setItemsError(
-          `Request description must be between ${CAMPUS_ITEM_LIMITS.requestDescriptionMin} and ${CAMPUS_ITEM_LIMITS.requestDescriptionMax} characters.`
-        );
+      if (item.listingType !== 'lend') {
+        setItemsError('Borrow requests are only available for lending items.');
         return false;
       }
+
+      if (item.status !== 'Available') {
+        setItemsError('This item is not currently available to borrow.');
+        return false;
+      }
+
+      if (item.authorId === user.uid) {
+        setItemsError('You cannot send a borrow request for your own listing.');
+        return false;
+      }
+
+      const trimmedPhone = (userPhone || '').trim();
+      if (
+        trimmedPhone.length < CAMPUS_ITEM_LIMITS.phoneMin ||
+        trimmedPhone.length > CAMPUS_ITEM_LIMITS.phoneMax
+      ) {
+        setItemsError('Please save your phone number in your student profile first.');
+        return false;
+      }
+
+      const existingPending = borrowerRequests.find(
+        (req) => req.itemId === item.id && (req.status === 'Pending' || req.status === 'Accepted')
+      );
+      if (existingPending) {
+        setItemsError('You already have a pending borrow request for this item.');
+        return false;
+      }
+
+      const safeBorrowerName = (
+        displayName.trim() ||
+        user.displayName?.trim() ||
+        'Campus Student'
+      ).slice(0, CAMPUS_ITEM_LIMITS.authorNameMax);
+      const safeLenderName = (item.authorName.trim() || 'Lender').slice(
+        0,
+        CAMPUS_ITEM_LIMITS.authorNameMax
+      );
+      const description = (
+        rawNote.trim() || `Request to borrow ${item.title}`
+      ).slice(0, CAMPUS_ITEM_LIMITS.requestDescriptionMax);
+      const clampedRatingAvg = Math.max(
+        0,
+        Math.min(5, Math.round(borrowerRatingAverage * 100) / 100)
+      );
+      const clampedRatingCount = Math.max(0, Math.min(100000, Math.floor(borrowerRatingCount)));
 
       setSubmittingRequest(true);
       setItemsError(null);
       setStatusMessage(null);
 
       try {
-        const safeRequesterName = (user.displayName?.trim() || 'Campus Student').slice(
-          0,
-          CAMPUS_ITEM_LIMITS.authorNameMax
-        );
-        const safeRequesterPhone = normalizedPhone.slice(0, CAMPUS_ITEM_LIMITS.phoneMax);
+        const requestRef = doc(collection(db, REQUESTS_COLLECTION));
+        const lockRef = doc(db, BORROW_LOCKS_COLLECTION, getBorrowLockDocId(item.id, user.uid));
+        const batch = writeBatch(db);
 
-        await addDoc(collection(db, REQUESTS_COLLECTION), {
+        batch.set(requestRef, {
           description,
-          itemId: linkedItem ? linkedItem.id.slice(0, 128) : null,
-          itemTitle: linkedItem ? linkedItem.title.slice(0, CAMPUS_ITEM_LIMITS.titleMax) : null,
-          itemPhotoUrl: linkedItem ? linkedItem.photoUrl.slice(0, 250000) : null,
-          status: 'Open',
-          visibility: 'campus',
+          itemId: item.id,
+          itemTitle: item.title.trim().slice(0, CAMPUS_ITEM_LIMITS.titleMax),
+          itemPhotoUrl: item.photoUrl || null,
+          status: 'Pending',
+          visibility: 'private',
           requesterId: user.uid,
-          requesterName: safeRequesterName,
-          requesterPhone: safeRequesterPhone,
-          acceptedById: null,
-          acceptedByName: null,
-          acceptedByPhone: null,
+          requesterName: safeBorrowerName,
+          requesterPhone: trimmedPhone.slice(0, CAMPUS_ITEM_LIMITS.phoneMax),
+          borrowerRatingAverage: clampedRatingAvg,
+          borrowerRatingCount: clampedRatingCount,
+          acceptedById: item.authorId,
+          acceptedByName: safeLenderName,
+          acceptedByPhone: item.authorPhone,
           borrowerFulfilled: false,
+          borrowerFulfilledAt: null,
           lenderFulfilled: false,
+          lenderFulfilledAt: null,
+          completedAt: null,
+          cancelledAt: null,
+          cancelledById: null,
+          cancelledByRole: null,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         });
 
-        setStatusMessage('Your Open request is now live for all signed-in students.');
+        batch.set(lockRef, {
+          requestId: requestRef.id,
+          itemId: item.id,
+          borrowerId: user.uid,
+          lenderId: item.authorId,
+          createdAt: serverTimestamp(),
+        });
+
+        await batch.commit();
+
+        setStatusMessage(
+          `Borrow request sent privately to ${safeLenderName} for “${item.title}”. Contact each other to arrange pickup and return, then both confirm.`
+        );
         return true;
       } catch (err) {
-        setItemsError('Could not post your request right now. Please try again.');
         try {
           handleFirestoreError(err, OperationType.CREATE, REQUESTS_COLLECTION);
         } catch {
           // Structured error logged in handleFirestoreError
+        }
+        const code =
+          typeof err === 'object' && err !== null && 'code' in err
+            ? String((err as { code?: unknown }).code)
+            : '';
+        if (code === 'permission-denied') {
+          setItemsError(
+            'Could not send borrow request. You may already have a pending request for this item, or the item is no longer available.'
+          );
+        } else {
+          setItemsError('Could not send your borrow request right now. Please try again.');
         }
         return false;
       } finally {
         setSubmittingRequest(false);
       }
     },
-    [user.displayName, user.uid, userPhone]
-  );
-
-  const acceptRequest = useCallback(
-    async (request: CampusRequest): Promise<boolean> => {
-      const normalizedPhone = userPhone?.trim() || '';
-      if (normalizedPhone.length < CAMPUS_ITEM_LIMITS.phoneMin) {
-        setItemsError('Please complete your student profile before accepting a request.');
-        return false;
-      }
-
-      if (request.requesterId === user.uid) {
-        setItemsError('You cannot accept your own request.');
-        return false;
-      }
-
-      if (!db || !isFirebaseConfigured) {
-        setItemsError('Shared database is not configured.');
-        return false;
-      }
-
-      const firestoreDb = db;
-      setUpdatingRequestId(request.id);
-      setItemsError(null);
-      setStatusMessage(null);
-      const reqRef = doc(firestoreDb, REQUESTS_COLLECTION, request.id);
-      const reqPath = `${REQUESTS_COLLECTION}/${request.id}`;
-
-      try {
-        const safeAccepterName = (user.displayName?.trim() || 'Campus Student').slice(
-          0,
-          CAMPUS_ITEM_LIMITS.authorNameMax
-        );
-        const safeAccepterPhone = normalizedPhone.slice(0, CAMPUS_ITEM_LIMITS.phoneMax);
-
-        await runTransaction(firestoreDb, async (transaction) => {
-          const latestSnap = await transaction.get(reqRef);
-          if (!latestSnap.exists()) {
-            throw new Error('REQUEST_NOT_FOUND');
-          }
-
-          const data = latestSnap.data();
-          if (data.status !== 'Open' || data.acceptedById !== null) {
-            throw new Error('ALREADY_ACCEPTED');
-          }
-
-          if (data.requesterId === user.uid) {
-            throw new Error('SELF_ACCEPT');
-          }
-
-          transaction.update(reqRef, {
-            status: 'Accepted',
-            acceptedById: user.uid,
-            acceptedByName: safeAccepterName,
-            acceptedByPhone: safeAccepterPhone,
-            borrowerFulfilled: false,
-            lenderFulfilled: false,
-            updatedAt: serverTimestamp(),
-          });
-        });
-
-        setStatusMessage(
-          `Request accepted! ${request.requesterName} can now see your name and phone number.`
-        );
-        return true;
-      } catch (err) {
-        if (err instanceof Error && err.message === 'ALREADY_ACCEPTED') {
-          setItemsError('This request has already been accepted by another student.');
-          return false;
-        }
-        if (err instanceof Error && err.message === 'REQUEST_NOT_FOUND') {
-          setItemsError('This request is no longer available.');
-          return false;
-        }
-        if (err instanceof Error && err.message === 'SELF_ACCEPT') {
-          setItemsError('You cannot accept your own request.');
-          return false;
-        }
-
-        const errMsg = err instanceof Error ? err.message : String(err);
-        if (
-          errMsg.includes('Missing or insufficient permissions') ||
-          errMsg.includes('aborted') ||
-          errMsg.includes('FAILED_PRECONDITION')
-        ) {
-          setItemsError(
-            'Another student may have just accepted this request, or your session lacks permission.'
-          );
-        } else {
-          setItemsError('Could not accept this request right now. Please try again.');
-        }
-
-        try {
-          handleFirestoreError(err, OperationType.UPDATE, reqPath);
-        } catch {
-          // Structured error logged in handleFirestoreError
-        }
-        return false;
-      } finally {
-        setUpdatingRequestId(null);
-      }
-    },
-    [user.displayName, user.uid, userPhone]
+    [borrowerRequests, displayName, user.displayName, user.uid, userPhone]
   );
 
   const fulfillRequest = useCallback(
     async (request: CampusRequest): Promise<boolean> => {
-      if (request.status !== 'Accepted') {
-        setItemsError('Only accepted requests can be marked fulfilled.');
+      if (request.status !== 'Pending' && request.status !== 'Accepted') {
+        setItemsError('Only active borrow requests can be marked fulfilled.');
         return false;
       }
 
       if (request.requesterId !== user.uid && request.acceptedById !== user.uid) {
         setItemsError(
-          'Only the borrower or the lender from this exchange can mark it fulfilled.'
+          'Only the borrower or the lender from this exchange can confirm fulfillment.'
         );
         return false;
       }
@@ -624,18 +683,27 @@ export function useCampusItems(user: CampusUser, userPhone: string | null, isAdm
       setItemsError(null);
       setStatusMessage(null);
       const reqRef = doc(firestoreDb, REQUESTS_COLLECTION, request.id);
+      const lockRef = request.itemId
+        ? doc(
+            firestoreDb,
+            BORROW_LOCKS_COLLECTION,
+            getBorrowLockDocId(request.itemId, request.requesterId)
+          )
+        : null;
       const reqPath = `${REQUESTS_COLLECTION}/${request.id}`;
 
       try {
-        const resultStatus = await runTransaction(firestoreDb, async (transaction) => {
+        const outcome = await runTransaction(firestoreDb, async (transaction) => {
           const latestSnap = await transaction.get(reqRef);
+          const lockSnap = lockRef ? await transaction.get(lockRef) : null;
+
           if (!latestSnap.exists()) {
             throw new Error('REQUEST_NOT_FOUND');
           }
 
           const data = latestSnap.data();
-          if (data.status !== 'Accepted') {
-            throw new Error('NOT_ACCEPTED');
+          if (data.status !== 'Pending' && data.status !== 'Accepted') {
+            throw new Error('NOT_ACTIVE');
           }
 
           const isBorrower = data.requesterId === user.uid;
@@ -648,41 +716,102 @@ export function useCampusItems(user: CampusUser, userPhone: string | null, isAdm
           const prevLenderFulfilled = data.lenderFulfilled === true;
 
           if ((isBorrower && prevBorrowerFulfilled) || (isLender && prevLenderFulfilled)) {
-            throw new Error('ALREADY_CONFIRMED');
+            return { fulfilled: false, alreadyConfirmed: true, isBorrower };
           }
 
-          const nextBorrowerFulfilled = isBorrower ? true : prevBorrowerFulfilled;
-          const nextLenderFulfilled = isLender ? true : prevLenderFulfilled;
-          const nextStatus: RequestStatus =
-            nextBorrowerFulfilled && nextLenderFulfilled ? 'Fulfilled' : 'Accepted';
+          const otherConfirmed = isBorrower ? prevLenderFulfilled : prevBorrowerFulfilled;
 
-          transaction.update(reqRef, {
-            borrowerFulfilled: nextBorrowerFulfilled,
-            lenderFulfilled: nextLenderFulfilled,
-            status: nextStatus,
-            updatedAt: serverTimestamp(),
-          });
+          if (data.status === 'Pending') {
+            if (!otherConfirmed) {
+              if (isBorrower) {
+                transaction.update(reqRef, {
+                  borrowerFulfilled: true,
+                  borrowerFulfilledAt: serverTimestamp(),
+                  updatedAt: serverTimestamp(),
+                });
+              } else {
+                transaction.update(reqRef, {
+                  lenderFulfilled: true,
+                  lenderFulfilledAt: serverTimestamp(),
+                  updatedAt: serverTimestamp(),
+                });
+              }
+              return { fulfilled: false, alreadyConfirmed: false, isBorrower };
+            }
 
-          return nextStatus;
+            if (isBorrower) {
+              transaction.update(reqRef, {
+                borrowerFulfilled: true,
+                borrowerFulfilledAt: serverTimestamp(),
+                status: 'Fulfilled',
+                completedAt: serverTimestamp(),
+                updatedAt: serverTimestamp(),
+              });
+            } else {
+              transaction.update(reqRef, {
+                lenderFulfilled: true,
+                lenderFulfilledAt: serverTimestamp(),
+                status: 'Fulfilled',
+                completedAt: serverTimestamp(),
+                updatedAt: serverTimestamp(),
+              });
+            }
+
+            if (lockRef && lockSnap?.exists()) {
+              transaction.delete(lockRef);
+            }
+
+            return { fulfilled: true, alreadyConfirmed: false, isBorrower };
+          }
+
+          // Legacy Accepted request path
+          const nextStatus: RequestStatus = otherConfirmed ? 'Fulfilled' : 'Accepted';
+          if (isBorrower) {
+            transaction.update(reqRef, {
+              borrowerFulfilled: true,
+              status: nextStatus,
+              updatedAt: serverTimestamp(),
+            });
+          } else {
+            transaction.update(reqRef, {
+              lenderFulfilled: true,
+              status: nextStatus,
+              updatedAt: serverTimestamp(),
+            });
+          }
+
+          return { fulfilled: nextStatus === 'Fulfilled', alreadyConfirmed: false, isBorrower };
         });
 
-        setStatusMessage(
-          resultStatus === 'Fulfilled'
-            ? 'Both borrower and lender confirmed! Exchange is now Fulfilled and ratings are unlocked.'
-            : 'Your fulfillment is recorded. Once the other student also presses Mark Fulfilled, ratings will unlock.'
-        );
+        if (outcome.alreadyConfirmed) {
+          return true;
+        }
+
+        if (outcome.fulfilled) {
+          setStatusMessage(
+            'Both borrower and lender confirmed! Borrow exchange is now Fulfilled and ratings are unlocked.'
+          );
+        } else if (outcome.isBorrower) {
+          setStatusMessage(
+            `Recorded “Item returned” for “${request.itemTitle || 'this item'}”. Waiting for ${
+              request.acceptedByName || 'the lender'
+            } to confirm “Return received”.`
+          );
+        } else {
+          setStatusMessage(
+            `Recorded “Return received” for “${request.itemTitle || 'this item'}”. Waiting for ${
+              request.requesterName
+            } to confirm “Item returned”.`
+          );
+        }
         return true;
       } catch (err) {
-        if (err instanceof Error && err.message === 'ALREADY_CONFIRMED') {
-          setItemsError('You have already pressed Mark Fulfilled for this exchange.');
-          return false;
-        }
         if (err instanceof Error && err.message === 'REQUEST_NOT_FOUND') {
-          setItemsError('This request is no longer available.');
+          setItemsError('This borrow request is no longer available.');
           return false;
         }
-        if (err instanceof Error && err.message === 'NOT_ACCEPTED') {
-          setItemsError('This exchange is no longer in Accepted status.');
+        if (err instanceof Error && err.message === 'NOT_ACTIVE') {
+          setItemsError('This borrow request has already been fulfilled or cancelled.');
           return false;
         }
         if (err instanceof Error && err.message === 'UNAUTHORIZED') {
@@ -690,7 +819,101 @@ export function useCampusItems(user: CampusUser, userPhone: string | null, isAdm
           return false;
         }
 
-        setItemsError('Could not mark this request as fulfilled right now. Please try again.');
+        setItemsError('Could not update borrow confirmation right now. Please try again.');
+        try {
+          handleFirestoreError(err, OperationType.UPDATE, reqPath);
+        } catch {
+          // Structured error logged in handleFirestoreError
+        }
+        return false;
+      } finally {
+        setUpdatingRequestId(null);
+      }
+    },
+    [user.uid]
+  );
+
+  const cancelBorrowRequest = useCallback(
+    async (request: CampusRequest): Promise<boolean> => {
+      if (!db || !isFirebaseConfigured) {
+        setItemsError('Shared database is not configured.');
+        return false;
+      }
+
+      if (request.status !== 'Pending' && request.status !== 'Accepted') {
+        setItemsError('Only pending borrow requests can be cancelled.');
+        return false;
+      }
+
+      if (request.requesterId !== user.uid && request.acceptedById !== user.uid) {
+        setItemsError('Only the involved borrower and lender can cancel this borrow request.');
+        return false;
+      }
+
+      const firestoreDb = db;
+      setUpdatingRequestId(request.id);
+      setItemsError(null);
+      setStatusMessage(null);
+      const reqRef = doc(firestoreDb, REQUESTS_COLLECTION, request.id);
+      const lockRef = request.itemId
+        ? doc(
+            firestoreDb,
+            BORROW_LOCKS_COLLECTION,
+            getBorrowLockDocId(request.itemId, request.requesterId)
+          )
+        : null;
+      const reqPath = `${REQUESTS_COLLECTION}/${request.id}`;
+
+      try {
+        await runTransaction(firestoreDb, async (transaction) => {
+          const latestSnap = await transaction.get(reqRef);
+          const lockSnap = lockRef ? await transaction.get(lockRef) : null;
+
+          if (!latestSnap.exists()) {
+            throw new Error('REQUEST_NOT_FOUND');
+          }
+
+          const data = latestSnap.data();
+          if (data.status !== 'Pending' && data.status !== 'Accepted') {
+            throw new Error('NOT_ACTIVE');
+          }
+
+          const isBorrower = data.requesterId === user.uid;
+          const isLender = data.acceptedById === user.uid;
+          if (!isBorrower && !isLender) {
+            throw new Error('UNAUTHORIZED');
+          }
+
+          if (data.status === 'Pending') {
+            transaction.update(reqRef, {
+              status: 'Cancelled',
+              cancelledAt: serverTimestamp(),
+              cancelledById: user.uid,
+              cancelledByRole: isBorrower ? 'borrower' : 'lender',
+              updatedAt: serverTimestamp(),
+            });
+          } else {
+            transaction.update(reqRef, {
+              status: 'Cancelled',
+              updatedAt: serverTimestamp(),
+            });
+          }
+
+          if (lockRef && lockSnap?.exists()) {
+            transaction.delete(lockRef);
+          }
+        });
+
+        setStatusMessage(
+          `Borrow request for “${request.itemTitle || 'this item'}” has been cancelled.`
+        );
+        return true;
+      } catch (err) {
+        if (err instanceof Error && err.message === 'NOT_ACTIVE') {
+          setItemsError('This borrow request has already been fulfilled or cancelled.');
+          return false;
+        }
+        setItemsError('Could not cancel this borrow request right now. Please try again.');
         try {
           handleFirestoreError(err, OperationType.UPDATE, reqPath);
         } catch {
@@ -707,7 +930,9 @@ export function useCampusItems(user: CampusUser, userPhone: string | null, isAdm
   const deleteRequest = useCallback(
     async (request: CampusRequest): Promise<boolean> => {
       if (request.requesterId !== user.uid && !isAdmin) {
-        setItemsError('Only the request creator or an authorized administrator can delete this request.');
+        setItemsError(
+          'Only the request creator or an authorized administrator can delete this request.'
+        );
         return false;
       }
 
@@ -716,14 +941,29 @@ export function useCampusItems(user: CampusUser, userPhone: string | null, isAdm
         return false;
       }
 
+      const firestoreDb = db;
       setDeletingId(request.id);
       setItemsError(null);
       setStatusMessage(null);
+      const reqRef = doc(firestoreDb, REQUESTS_COLLECTION, request.id);
+      const lockRef = request.itemId
+        ? doc(
+            firestoreDb,
+            BORROW_LOCKS_COLLECTION,
+            getBorrowLockDocId(request.itemId, request.requesterId)
+          )
+        : null;
       const reqPath = `${REQUESTS_COLLECTION}/${request.id}`;
 
       try {
-        await deleteDoc(doc(db, REQUESTS_COLLECTION, request.id));
-        setStatusMessage('Removed the campus request.');
+        await runTransaction(firestoreDb, async (transaction) => {
+          const lockSnap = lockRef ? await transaction.get(lockRef) : null;
+          transaction.delete(reqRef);
+          if (lockRef && lockSnap?.exists()) {
+            transaction.delete(lockRef);
+          }
+        });
+        setStatusMessage('Removed the borrow request.');
         return true;
       } catch (err) {
         const errCode =
@@ -756,31 +996,33 @@ export function useCampusItems(user: CampusUser, userPhone: string | null, isAdm
     setStatusMessage(null);
   }, []);
 
-  const dismissNewRequestAlert = useCallback(() => {
-    setNewRequestAlert(null);
+  const dismissIncomingBorrowAlert = useCallback(() => {
+    setIncomingBorrowAlert(null);
   }, []);
 
   return {
     allItems,
-    sharedRequests,
-    myRequests,
+    borrowRequests,
+    pendingBorrowRequests,
+    allAdminRequests,
     isBackendConfigured,
     loading,
+    borrowRequestsLoading,
     submittingItem,
     submittingRequest,
     updatingRequestId,
     deletingId,
     itemsError,
     statusMessage,
-    newRequestAlert,
+    incomingBorrowAlert,
     addItem,
     deleteItem,
-    createRequest,
-    acceptRequest,
+    createBorrowRequest,
     fulfillRequest,
+    cancelBorrowRequest,
     deleteRequest,
     clearItemsError,
     clearStatusMessage,
-    dismissNewRequestAlert,
+    dismissIncomingBorrowAlert,
   };
 }

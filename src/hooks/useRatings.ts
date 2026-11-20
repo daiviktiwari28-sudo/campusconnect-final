@@ -15,6 +15,8 @@ import {
   RATING_LIMITS,
   type CampusRequest,
   type ExchangeRating,
+  type PurchaseRequest,
+  type RateableExchange,
   type RatingRole,
   type UserRatingSummary,
 } from '../data/campusItems';
@@ -33,6 +35,14 @@ function isAllowedRole(value: unknown): value is RatingRole {
 
 export function buildExchangeSummary(request: CampusRequest): string {
   const raw = request.itemTitle?.trim() || request.description.trim() || 'Completed exchange';
+  if (raw.length <= RATING_LIMITS.exchangeSummaryMax) {
+    return raw;
+  }
+  return `${raw.slice(0, RATING_LIMITS.exchangeSummaryMax - 1).trimEnd()}…`;
+}
+
+export function buildPurchaseExchangeSummary(request: PurchaseRequest): string {
+  const raw = request.itemTitle.trim() || 'Completed purchase';
   if (raw.length <= RATING_LIMITS.exchangeSummaryMax) {
     return raw;
   }
@@ -58,7 +68,7 @@ export function formatRemainingEditWindow(rating: ExchangeRating, nowMs = Date.n
   return `${hours}h left to edit`;
 }
 
-export function useRatings(user: CampusUser) {
+export function useRatings(user: CampusUser, displayName?: string) {
   const [ratings, setRatings] = useState<ExchangeRating[]>([]);
   const [ratingsLoading, setRatingsLoading] = useState<boolean>(
     Boolean(db && isFirebaseConfigured)
@@ -182,21 +192,9 @@ export function useRatings(user: CampusUser) {
   );
 
   const submitRating = useCallback(
-    async (request: CampusRequest, rawScore: number, rawComment: string): Promise<boolean> => {
+    async (exchange: RateableExchange, rawScore: number, rawComment: string): Promise<boolean> => {
       if (!db || !isFirebaseConfigured) {
         setRatingsError('Shared database is not configured.');
-        return false;
-      }
-
-      if (
-        request.status !== 'Fulfilled' ||
-        !request.acceptedById ||
-        !request.borrowerFulfilled ||
-        !request.lenderFulfilled
-      ) {
-        setRatingsError(
-          'Ratings can only be submitted after both the borrower and lender mark the exchange as Fulfilled.'
-        );
         return false;
       }
 
@@ -204,20 +202,20 @@ export function useRatings(user: CampusUser) {
       let rateeId: string;
       let rateeName: string;
 
-      if (request.requesterId === user.uid) {
+      if (exchange.borrowerId === user.uid) {
         raterRole = 'borrower';
-        rateeId = request.acceptedById;
-        rateeName = request.acceptedByName?.trim() || 'Campus Student';
-      } else if (request.acceptedById === user.uid) {
+        rateeId = exchange.lenderId;
+        rateeName = exchange.lenderName?.trim() || 'Campus Student';
+      } else if (exchange.lenderId === user.uid) {
         raterRole = 'lender';
-        rateeId = request.requesterId;
-        rateeName = request.requesterName?.trim() || 'Campus Student';
+        rateeId = exchange.borrowerId;
+        rateeName = exchange.borrowerName?.trim() || 'Campus Student';
       } else {
-        setRatingsError('Only the borrower and lender from this fulfilled exchange can rate each other.');
+        setRatingsError('Only the borrower and lender from this completed transaction can rate each other.');
         return false;
       }
 
-      if (rateeId === user.uid) {
+      if (!rateeId || rateeId === user.uid) {
         setRatingsError('You cannot rate yourself.');
         return false;
       }
@@ -233,13 +231,17 @@ export function useRatings(user: CampusUser) {
       }
 
       const comment = rawComment.trim().slice(0, RATING_LIMITS.commentMax);
-      const safeRaterName = (user.displayName?.trim() || 'Campus Student').slice(
-        0,
-        CAMPUS_ITEM_LIMITS.authorNameMax
-      );
+      const safeRaterName = (
+        displayName?.trim() ||
+        user.displayName?.trim() ||
+        'Campus Student'
+      ).slice(0, CAMPUS_ITEM_LIMITS.authorNameMax);
       const safeRateeName = rateeName.slice(0, CAMPUS_ITEM_LIMITS.authorNameMax);
-      const exchangeSummary = buildExchangeSummary(request);
-      const ratingId = buildRatingDocId(request.id, user.uid);
+      const exchangeSummary = (exchange.summary.trim() || 'Completed exchange').slice(
+        0,
+        RATING_LIMITS.exchangeSummaryMax
+      );
+      const ratingId = buildRatingDocId(exchange.id, user.uid);
       const ratingRef = doc(db, RATINGS_COLLECTION, ratingId);
       const ratingPath = `${RATINGS_COLLECTION}/${ratingId}`;
 
@@ -256,7 +258,7 @@ export function useRatings(user: CampusUser) {
           }
 
           transaction.set(ratingRef, {
-            requestId: request.id,
+            requestId: exchange.id,
             exchangeSummary,
             raterId: user.uid,
             raterName: safeRaterName,
@@ -276,14 +278,14 @@ export function useRatings(user: CampusUser) {
         return true;
       } catch (err) {
         if (err instanceof Error && err.message === 'ALREADY_RATED') {
-          setRatingsError('You have already submitted a rating for this fulfilled exchange.');
+          setRatingsError('You have already submitted a rating for this completed transaction.');
           return false;
         }
 
         const errMsg = err instanceof Error ? err.message : String(err);
         if (errMsg.includes('Missing or insufficient permissions')) {
           setRatingsError(
-            'Unable to submit this rating. Make sure the exchange is Fulfilled and you have not already rated it.'
+            'Unable to submit this rating. Make sure the transaction is completed and you have not already rated it.'
           );
         } else {
           setRatingsError('Could not submit your rating right now. Please try again.');
@@ -299,7 +301,7 @@ export function useRatings(user: CampusUser) {
         setSubmittingRating(false);
       }
     },
-    [user.displayName, user.uid]
+    [displayName, user.displayName, user.uid]
   );
 
   const updateRating = useCallback(

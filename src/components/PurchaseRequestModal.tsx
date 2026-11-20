@@ -95,25 +95,34 @@ export function PurchaseRequestModal({
         </div>
 
         {/* Item & Listed Price */}
-        <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-4 flex items-center gap-3.5">
-          {item.photoUrl && (
-            <img
-              src={item.photoUrl}
-              alt={item.title}
-              referrerPolicy="no-referrer"
-              className="w-16 h-12 rounded-lg object-cover border border-slate-200 shrink-0"
-            />
-          )}
-          <div className="min-w-0 flex-1">
-            <p className="text-sm font-semibold text-slate-900 truncate">{item.title}</p>
-            <p className="text-xs text-slate-600 mt-0.5 truncate">Lender: {sellerDisplayName}</p>
+        <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-2.5">
+          <div className="flex items-center gap-3.5">
+            {item.photoUrl && (
+              <img
+                src={item.photoUrl}
+                alt={item.title}
+                referrerPolicy="no-referrer"
+                className="w-16 h-12 rounded-lg object-cover border border-slate-200 shrink-0"
+              />
+            )}
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold text-slate-900 truncate">{item.title}</p>
+              <p className="text-xs text-slate-600 mt-0.5 truncate">
+                Listed by {sellerDisplayName}
+              </p>
+            </div>
+            <div className="text-right shrink-0">
+              <p className="text-xs font-medium text-slate-500">Listed price</p>
+              <p className="font-display text-lg font-bold text-slate-900 tabular-nums">
+                {formatInr(item.price)}
+              </p>
+            </div>
           </div>
-          <div className="text-right shrink-0">
-            <p className="text-xs font-medium text-slate-500">Listed price</p>
-            <p className="font-display text-lg font-bold text-slate-900 tabular-nums">
-              {formatInr(item.price)}
+          {item.description && (
+            <p className="text-xs text-slate-600 leading-relaxed pt-2 border-t border-slate-200/70">
+              {item.description}
             </p>
-          </div>
+          )}
         </div>
 
         {/* Details Shared with Lender */}

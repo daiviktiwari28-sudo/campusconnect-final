@@ -23,38 +23,31 @@
 17. `/payments/{paymentId}` updates are allowed strictly from `'Pending'` to `'Successful'` or `'Failed'` with `verifiedByBackend == true` and immutable `amount`, `buyerId`, `sellerId`, `itemId`, `transactionRef`, and `createdAt`. Deletion is forbidden (`allow delete: if false`).
 18. `/purchaseRequests/{requestId}` is strictly private: `get` and `list` are allowed ONLY when `existing().borrowerId == request.auth.uid || existing().lenderId == request.auth.uid`, ensuring private borrower and lender phone numbers are never exposed to any other student.
 19. `/purchaseRequests/{requestId}` creation applies to permanent-sale (`listingType == 'sell'`, `status == 'Available'`) items only, forbids self-purchase (`borrowerId != lenderId`), verifies borrower's saved phone number, initializes `status == 'Pending'`, `borrowerConfirmed == false`, `lenderConfirmed == false`, `finalAmount == listedPrice`, and atomically creates `/purchaseRequestLocks/{itemId}_{borrowerId}` (`!exists` before, `existsAfter` after) to prevent duplicate active purchase requests for the same item.
-20. `/purchaseRequests/{requestId}` updates are terminal-state locked (`existing().status == 'Pending'`) and split into three strict actions:
-    - **Borrower Confirm (`Payment made`)**: Only by `borrowerId`; records `borrowerConfirmed: true`, `borrowerConfirmedAt: request.time`; completes (`status: 'Completed'`, `completedAt: request.time`) and atomically marks `/campusItems/{itemId}` `Sold` and deletes the lock ONLY if `lenderConfirmed` was already `true`.
-    - **Lender Confirm (`Payment received`)**: Only by `lenderId`; records `lenderConfirmed: true`, `lenderConfirmedAt: request.time`; completes (`status: 'Completed'`, `completedAt: request.time`) and atomically marks `/campusItems/{itemId}` `Sold` and deletes the lock ONLY if `borrowerConfirmed` was already `true`.
-    - **Cancel Request**: Allowed by either `borrowerId` or `lenderId` while `status == 'Pending'`; records `status: 'Cancelled'`, `cancelledAt: request.time`, `cancelledById: request.auth.uid`, `cancelledByRole`, and atomically deletes `/purchaseRequestLocks/{itemId}_{borrowerId}`.
-21. `/purchaseRequests/{requestId}` forbids deletion (`allow delete: if false`) so a full timestamped audit trail of requests, confirmations, cancellations, and completion is preserved.
+20. `/purchaseRequests/{requestId}` updates are terminal-state locked (`existing().status == 'Pending'`) and split into three strict actions where borrower and lender confirm independently without blocking each other:
+    - **Borrower Confirm (`Payment made`)**: Only by `borrowerId`; records `borrowerConfirmed: true`, `borrowerConfirmedAt: request.time`; transitions `status` to `'Completed'` and sets `completedAt: request.time` when `lenderConfirmed` is already `true` (otherwise remains `'Pending'`).
+    - **Lender Confirm (`Payment received`)**: Only by `lenderId`; records `lenderConfirmed: true`, `lenderConfirmedAt: request.time`; transitions `status` to `'Completed'` and sets `completedAt: request.time` when `borrowerConfirmed` is already `true` (otherwise remains `'Pending'`).
+    - **Cancel Request**: Allowed by either `borrowerId` or `lenderId` while `status == 'Pending'`; records `status: 'Cancelled'`, `cancelledAt: request.time`, `cancelledById: request.auth.uid`, `cancelledByRole`.
+21. `/purchaseRequests/{requestId}` forbids deletion (`allow delete: if false`) so a full timestamped audit trail of requests, confirmations, cancellations, and completion is preserved; reads (`get`/`list`) are restricted strictly to `borrowerId`, `lenderId`, or `isAdmin()`.
+22. `/campusRequests/{requestId}` is strictly private: `get` and `list` are allowed ONLY when `existing().requesterId == request.auth.uid || existing().acceptedById == request.auth.uid || isAdmin()`. Public listing of requests is completely forbidden.
+23. New `/campusRequests/{requestId}` documents must target an existing lending item (`listingType == 'lend'`, `authorId == acceptedById`, `authorId != requesterId`), set `visibility: 'private'`, `status: 'Pending'`, and atomically acquire `/borrowRequestLocks/{itemId}_{borrowerId}` to prevent duplicates. Both borrower and lender can independently confirm completion (`borrowerFulfilled` / `lenderFulfilled`) or cancel while pending; status becomes `'Fulfilled'` only after both confirm.
+24. `/exchangeRatings/{ratingId}` allows `get` when `resource == null || existing().visibility == 'campus'` so atomic existence checks in `runTransaction` succeed before creating a new rating, and `allow create` validates participant identity against EITHER a `'Fulfilled'` `/campusRequests/{requestId}` OR a `'Completed'` `/purchaseRequests/{requestId}`.
 
 ## 2. Adversarial Payloads Covered
-1. Unauthenticated read/list on `/campusItems`, `/campusRequests`, `/exchangeRatings`, `/publicProfiles`, `/payments`, or `/purchaseRequests` -> `PERMISSION_DENIED`.
+1. Unauthenticated read/list on `/campusItems`, `/campusRequests`, `/borrowRequestLocks`, `/exchangeRatings`, `/publicProfiles`, `/payments`, `/purchaseRequests`, or `/purchaseRequestLocks` -> `PERMISSION_DENIED`.
 2. Verified non-JDCOEM email (e.g., `@gmail.com`, `@notjdcoem.ac.in`, or `@notjdcoem.in`) attempting any read or write -> `PERMISSION_DENIED`.
 3. Creating an item or request without a saved `/users/{uid}` phone number -> `PERMISSION_DENIED`.
-4. Creating a `/campusRequests` doc with initial status `'Accepted'` or `'Fulfilled'` -> `PERMISSION_DENIED`.
-5. Requester attempting to accept their own `'Open'` request -> `PERMISSION_DENIED`.
-6. Second user attempting to overwrite `acceptedById` on an already `'Accepted'` request -> `PERMISSION_DENIED`.
-7. Jumping a request directly from `'Open'` to `'Fulfilled'` -> `PERMISSION_DENIED`.
-8. Unrelated third user attempting to mark an `'Accepted'` request `'Fulfilled'` -> `PERMISSION_DENIED`.
-9. Non-creator non-admin attempting to delete someone else's `/campusItems` doc -> `PERMISSION_DENIED`.
-10. Modifying any `'Fulfilled'` request -> `PERMISSION_DENIED`.
-11. Unverified email spoofing admin email or domain -> `PERMISSION_DENIED`.
-12. Injecting shadow fields, private `phoneNumber` into `/publicProfiles`, or oversized strings -> `PERMISSION_DENIED`.
-13. Backdating or forging `createdAt` / `updatedAt` timestamps -> `PERMISSION_DENIED`.
-14. Rating an `'Open'` or `'Accepted'` (unfulfilled) request -> `PERMISSION_DENIED`.
-15. Non-participant third party attempting to rate an exchange, or participant attempting to rate themselves -> `PERMISSION_DENIED`.
-16. Submitting a duplicate rating with a non-deterministic document ID -> `PERMISSION_DENIED`.
-17. Editing another user's rating, editing after the 24-hour window, or deleting any rating -> `PERMISSION_DENIED`.
-18. Creating a `/payments` document directly with `status: 'Successful'` or a tampered `amount != item.price` -> `PERMISSION_DENIED`.
-19. Reading or listing another student's `/payments` document when neither `buyerId` nor `sellerId` -> `PERMISSION_DENIED`.
-20. Marking a `/campusItems` `'sell'` item `'Sold'` without a `'Successful'` payment or `'Completed'` purchase request for that `itemId` and `buyerId` in the same atomic commit (`getAfter`) -> `PERMISSION_DENIED`.
-21. Updating a `'Successful'` or `'Failed'` payment record after completion, or deleting a payment record -> `PERMISSION_DENIED`.
-22. Purchasing a `'lend'` item or purchasing your own `'sell'` item -> `PERMISSION_DENIED`.
-23. Third-party student attempting to `get` or `list` another pair's `/purchaseRequests` or `/purchaseRequestLocks` -> `PERMISSION_DENIED`.
-24. Borrower sending a duplicate `/purchaseRequests` document while `/purchaseRequestLocks/{itemId}_{borrowerId}` already exists -> `PERMISSION_DENIED`.
-25. Borrower marking a `/purchaseRequests` document `'Completed'` before `lenderConfirmed == true`, or forging `lenderConfirmed: true` -> `PERMISSION_DENIED`.
-26. Lender marking a `/purchaseRequests` document `'Completed'` before `borrowerConfirmed == true`, or altering `finalAmount` after the first confirmation -> `PERMISSION_DENIED`.
-27. Modifying or cancelling a `'Completed'` or `'Cancelled'` purchase request, or deleting a purchase request -> `PERMISSION_DENIED`.
-28. Sending a purchase request for a `'lend'` item or for an already `'Sold'` item -> `PERMISSION_DENIED`.
+4. Creating a `/campusRequests` doc with `visibility: 'campus'` or targeting a non-lending item or targeting self -> `PERMISSION_DENIED`.
+5. Unrelated third-party student attempting to `get`, `list`, confirm, or cancel another pair's `/campusRequests`, `/borrowRequestLocks`, `/purchaseRequests`, or `/purchaseRequestLocks` -> `PERMISSION_DENIED`.
+6. Non-creator non-admin attempting to delete someone else's `/campusItems` doc -> `PERMISSION_DENIED`.
+7. Modifying any `'Fulfilled'`, `'Completed'`, or `'Cancelled'` request -> `PERMISSION_DENIED`.
+8. Unverified email spoofing admin email or domain -> `PERMISSION_DENIED`.
+9. Injecting shadow fields, private `phoneNumber` into `/publicProfiles`, or oversized strings -> `PERMISSION_DENIED`.
+10. Backdating or forging `createdAt` / `updatedAt` timestamps -> `PERMISSION_DENIED`.
+11. Rating a `'Pending'`, `'Accepted'`, or `'Cancelled'` (uncompleted) borrow or purchase request -> `PERMISSION_DENIED`.
+12. Non-participant third party attempting to rate an exchange, or participant attempting to rate themselves -> `PERMISSION_DENIED`.
+13. Submitting a duplicate rating with a non-deterministic document ID -> `PERMISSION_DENIED`.
+14. Editing another user's rating, editing after the 24-hour window, or deleting any rating -> `PERMISSION_DENIED`.
+15. Marking a `/campusItems` `'sell'` item `'Sold'` without a `'Completed'` purchase request (or legacy `'Successful'` payment) for that `itemId` and `buyerId` in the same atomic commit (`existsAfter` + `getAfter`) -> `PERMISSION_DENIED`.
+16. Borrower sending a duplicate `/purchaseRequests` or `/campusRequests` while the corresponding lock already exists -> `PERMISSION_DENIED`.
+17. Borrower or lender forging the other party's confirmation flag or altering `finalAmount` after the first confirmation -> `PERMISSION_DENIED`.
+18. Sending a purchase request for a `'lend'` item or a borrow request for a `'sell'` item -> `PERMISSION_DENIED`.

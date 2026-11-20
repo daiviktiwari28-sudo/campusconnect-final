@@ -9,7 +9,7 @@ export type CampusCategory =
 
 export type ListingType = 'lend' | 'sell';
 export type CampusStatus = 'Available' | 'Sold';
-export type RequestStatus = 'Open' | 'Accepted' | 'Fulfilled';
+export type RequestStatus = 'Pending' | 'Open' | 'Accepted' | 'Fulfilled' | 'Cancelled';
 export type RatingRole = 'borrower' | 'lender';
 export type PaymentStatus = 'Pending' | 'Successful' | 'Failed';
 export type PaymentMethodId = 'Campus UPI' | 'Campus Direct Pay';
@@ -85,15 +85,6 @@ export interface PurchaseRequest {
   updatedAtMs: number;
 }
 
-export interface CompletedTransactionItem {
-  id: string;
-  itemTitle: string;
-  counterpartyName: string;
-  role: 'buyer' | 'seller';
-  finalAmount: number;
-  completedAtMs: number;
-}
-
 export interface CampusRequest {
   id: string;
   description: string;
@@ -104,13 +95,31 @@ export interface CampusRequest {
   requesterId: string;
   requesterName: string;
   requesterPhone: string;
+  borrowerRatingAverage: number;
+  borrowerRatingCount: number;
   acceptedById: string | null;
   acceptedByName: string | null;
   acceptedByPhone: string | null;
   borrowerFulfilled: boolean;
+  borrowerFulfilledAtMs: number | null;
   lenderFulfilled: boolean;
+  lenderFulfilledAtMs: number | null;
+  completedAtMs: number | null;
+  cancelledAtMs: number | null;
+  cancelledById: string | null;
+  cancelledByRole: PurchaseParticipantRole | null;
   createdAtMs: number;
   updatedAtMs: number;
+}
+
+export interface RateableExchange {
+  id: string;
+  summary: string;
+  borrowerId: string;
+  borrowerName: string;
+  lenderId: string;
+  lenderName: string;
+  kind: 'borrow' | 'purchase';
 }
 
 export interface ExchangeRating {

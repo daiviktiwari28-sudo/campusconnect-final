@@ -2,14 +2,14 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { Loader2, Star, X } from 'lucide-react';
 import {
   RATING_LIMITS,
-  type CampusRequest,
   type ExchangeRating,
+  type RateableExchange,
   type RatingRole,
 } from '../data/campusItems';
 
 export interface RateModalTarget {
   mode: 'create' | 'edit';
-  request?: CampusRequest;
+  exchange?: RateableExchange;
   existingRating?: ExchangeRating;
   rateeName: string;
   raterRole: RatingRole;

@@ -234,84 +234,129 @@
     },
     "CampusRequest": {
       "title": "CampusRequest",
-      "description": "A shared student request visible to all signed-in users with atomic Open -> Accepted -> Fulfilled lifecycle.",
+      "description": "Private lending/borrowing request sent directly to the student who listed the item, visible only to the involved borrower, lender, and admins.",
       "type": "object",
       "properties": {
         "description": {
           "type": "string",
-          "description": "What item the student needs and pickup details.",
-          "minLength": 5,
+          "description": "Optional pickup note or message sent privately from borrower to lender.",
+          "minLength": 1,
           "maxLength": 400
         },
         "itemId": {
           "type": "string",
-          "description": "Optional linked shared item ID, or null for general requests.",
+          "description": "Linked lending campusItem ID.",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
           "maxLength": 128
         },
         "itemTitle": {
           "type": "string",
-          "description": "Optional linked shared item title, or null.",
+          "description": "Linked lending item name.",
+          "minLength": 2,
           "maxLength": 100
         },
         "itemPhotoUrl": {
           "type": "string",
-          "description": "Optional linked shared item photo URL, or null.",
+          "description": "Optional linked lending item photo URL, or null.",
           "maxLength": 250000
         },
         "status": {
           "type": "string",
-          "description": "Lifecycle status of the request.",
-          "enum": ["Open", "Accepted", "Fulfilled"],
-          "minLength": 4,
+          "description": "Lifecycle status of the borrow request.",
+          "enum": ["Pending", "Accepted", "Fulfilled", "Cancelled"],
+          "minLength": 7,
           "maxLength": 20
         },
         "visibility": {
           "type": "string",
-          "description": "Campus visibility scope used for scoped list queries.",
-          "enum": ["campus"],
-          "minLength": 6,
-          "maxLength": 6
+          "description": "Strictly private visibility restricting access to borrower, lender, and admins.",
+          "enum": ["private"],
+          "minLength": 7,
+          "maxLength": 7
         },
         "requesterId": {
           "type": "string",
-          "description": "Firebase Auth UID of the requesting student.",
+          "description": "Firebase Auth UID of the borrowing student.",
           "pattern": "^[a-zA-Z0-9_\\-]+$",
           "maxLength": 128
         },
         "requesterName": {
           "type": "string",
-          "description": "Display name of the requesting student.",
+          "description": "Display name of the borrowing student.",
           "minLength": 1,
           "maxLength": 80
         },
         "requesterPhone": {
           "type": "string",
-          "description": "Confirmed phone number of the requesting student.",
+          "description": "Private phone number of the borrowing student visible only to borrower, lender, and admin.",
           "minLength": 7,
           "maxLength": 25
         },
+        "borrowerRatingAverage": {
+          "type": "number",
+          "description": "Borrower profile average star rating (0 to 5) at the time of request."
+        },
+        "borrowerRatingCount": {
+          "type": "integer",
+          "description": "Number of exchange ratings on the borrower profile at the time of request."
+        },
         "acceptedById": {
           "type": "string",
-          "description": "Firebase Auth UID of the accepting student, or null while Open.",
+          "description": "Firebase Auth UID of the item lister (lender) who receives and responds to the request.",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
           "maxLength": 128
         },
         "acceptedByName": {
           "type": "string",
-          "description": "Display name of the accepting student, or null while Open.",
+          "description": "Display name of the item lister (lender).",
+          "minLength": 1,
           "maxLength": 80
         },
         "acceptedByPhone": {
           "type": "string",
-          "description": "Confirmed phone number of the accepting student, or null while Open.",
+          "description": "Private phone number of the item lister (lender).",
+          "minLength": 7,
           "maxLength": 25
         },
         "borrowerFulfilled": {
           "type": "boolean",
-          "description": "True once the borrower (requester) presses Mark Fulfilled."
+          "description": "True once the borrower confirms their lending/return completion action."
+        },
+        "borrowerFulfilledAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when the borrower confirmed completion, or null."
         },
         "lenderFulfilled": {
           "type": "boolean",
-          "description": "True once the lender (accepter) presses Mark Fulfilled."
+          "description": "True once the lender confirms their lending/return completion action."
+        },
+        "lenderFulfilledAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when the lender confirmed completion, or null."
+        },
+        "completedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when both confirmations fulfilled the borrow request, or null."
+        },
+        "cancelledAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when either party cancelled the pending request, or null."
+        },
+        "cancelledById": {
+          "type": "string",
+          "description": "UID of the party who cancelled the request, or null.",
+          "maxLength": 128
+        },
+        "cancelledByRole": {
+          "type": "string",
+          "description": "Role of the party who cancelled the request, or null.",
+          "enum": ["borrower", "lender"],
+          "minLength": 6,
+          "maxLength": 8
         },
         "createdAt": {
           "type": "string",
@@ -334,23 +379,68 @@
         "requesterId",
         "requesterName",
         "requesterPhone",
+        "borrowerRatingAverage",
+        "borrowerRatingCount",
         "acceptedById",
         "acceptedByName",
         "acceptedByPhone",
         "borrowerFulfilled",
+        "borrowerFulfilledAt",
         "lenderFulfilled",
+        "lenderFulfilledAt",
+        "completedAt",
+        "cancelledAt",
+        "cancelledById",
+        "cancelledByRole",
         "createdAt",
         "updatedAt"
       ]
     },
-    "ExchangeRating": {
-      "title": "ExchangeRating",
-      "description": "Public 1-5 star rating and optional comment submitted after a Fulfilled exchange between borrower and lender.",
+    "BorrowRequestLock": {
+      "title": "BorrowRequestLock",
+      "description": "Atomic duplicate-prevention lock keyed by itemId_borrowerId while a borrow request is Pending.",
       "type": "object",
       "properties": {
         "requestId": {
           "type": "string",
-          "description": "ID of the Fulfilled campusRequest document.",
+          "description": "Linked CampusRequest document ID.",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "itemId": {
+          "type": "string",
+          "description": "ID of the lending campusItem.",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "borrowerId": {
+          "type": "string",
+          "description": "Firebase Auth UID of the borrower.",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "lenderId": {
+          "type": "string",
+          "description": "Firebase Auth UID of the lender.",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when the lock was created."
+        }
+      },
+      "required": ["requestId", "itemId", "borrowerId", "lenderId", "createdAt"]
+    },
+    "ExchangeRating": {
+      "title": "ExchangeRating",
+      "description": "Public 1-5 star rating and optional comment submitted after a completed borrow or permanent purchase transaction.",
+      "type": "object",
+      "properties": {
+        "requestId": {
+          "type": "string",
+          "description": "ID of the completed campusRequest or purchaseRequest document.",
           "pattern": "^[a-zA-Z0-9_\\-]+$",
           "maxLength": 128
         },
@@ -803,7 +893,11 @@
     },
     "/campusRequests/{requestId}": {
       "schema": "CampusRequest",
-      "description": "Shared student requests with atomic acceptance and fulfillment tracking."
+      "description": "Private lending/borrowing requests directed to the item lister and visible only to borrower, lender, and admins."
+    },
+    "/borrowRequestLocks/{lockId}": {
+      "schema": "BorrowRequestLock",
+      "description": "Atomic duplicate-prevention lock documents keyed by itemId_borrowerId for active pending borrow requests."
     },
     "/exchangeRatings/{ratingId}": {
       "schema": "ExchangeRating",
@@ -811,11 +905,11 @@
     },
     "/payments/{paymentId}": {
       "schema": "CampusPayment",
-      "description": "Backend-verified payment transactions visible only to the associated buyer and seller."
+      "description": "Legacy payment records visible only to the associated buyer and seller."
     },
     "/purchaseRequests/{requestId}": {
       "schema": "PurchaseRequest",
-      "description": "Private permanent-item purchase requests visible and editable strictly by the involved borrower and lender."
+      "description": "Private permanent-item purchase requests visible only to the involved borrower, lender, and admins."
     },
     "/purchaseRequestLocks/{lockId}": {
       "schema": "PurchaseRequestLock",

@@ -10,7 +10,12 @@ import {
   Trash2,
   UserMinus,
 } from 'lucide-react';
-import { formatInr, type CampusItem, type CampusRequest } from '../data/campusItems';
+import {
+  formatInr,
+  type CampusItem,
+  type CampusRequest,
+  type PurchaseRequest,
+} from '../data/campusItems';
 import type { PublicStudentProfile } from '../hooks/usePublicProfiles';
 import { BOOTSTRAPPED_ADMIN_EMAIL } from '../lib/firebase';
 import { formatBranchSemester } from '../lib/profileUtils';
@@ -21,6 +26,7 @@ interface AdminDashboardPanelProps {
   currentUserEmail: string | null;
   items: CampusItem[];
   requests: CampusRequest[];
+  purchaseRequests: PurchaseRequest[];
   publicProfiles: PublicStudentProfile[];
   publicProfilesById: Record<string, PublicStudentProfile>;
   adminUids: string[];
@@ -37,7 +43,7 @@ interface AdminDashboardPanelProps {
   onClearSearch: () => void;
 }
 
-type ModerationSection = 'items' | 'requests' | 'admins';
+type ModerationSection = 'items' | 'borrow-requests' | 'purchase-requests' | 'admins';
 
 function formatTimestamp(ms: number): string {
   try {
@@ -57,6 +63,7 @@ export function AdminDashboardPanel({
   currentUserEmail,
   items,
   requests,
+  purchaseRequests,
   publicProfiles,
   publicProfilesById,
   adminUids,
@@ -80,17 +87,21 @@ export function AdminDashboardPanel({
   const stats = useMemo(() => {
     const lendCount = items.filter((i) => i.listingType === 'lend').length;
     const sellCount = items.filter((i) => i.listingType === 'sell').length;
-    const openRequests = requests.filter((r) => r.status === 'Open').length;
+    const pendingBorrow = requests.filter(
+      (r) => r.status === 'Pending' || r.status === 'Accepted'
+    ).length;
+    const pendingPurchase = purchaseRequests.filter((r) => r.status === 'Pending').length;
     return {
       totalItems: items.length,
       lendCount,
       sellCount,
-      totalRequests: requests.length,
-      openRequests,
-      totalProfiles: publicProfiles.length,
+      totalBorrowRequests: requests.length,
+      pendingBorrow,
+      totalPurchaseRequests: purchaseRequests.length,
+      pendingPurchase,
       totalAdmins: adminUids.length + 1,
     };
-  }, [items, requests, publicProfiles.length, adminUids.length]);
+  }, [items, requests, purchaseRequests, adminUids.length]);
 
   const filteredItems = useMemo(() => {
     if (!normalizedQuery) return items;
@@ -104,17 +115,31 @@ export function AdminDashboardPanel({
     );
   }, [items, normalizedQuery]);
 
-  const filteredRequests = useMemo(() => {
+  const filteredBorrowRequests = useMemo(() => {
     if (!normalizedQuery) return requests;
     return requests.filter(
       (req) =>
         req.description.toLowerCase().includes(normalizedQuery) ||
         req.requesterName.toLowerCase().includes(normalizedQuery) ||
         req.requesterId.toLowerCase().includes(normalizedQuery) ||
+        (req.acceptedByName && req.acceptedByName.toLowerCase().includes(normalizedQuery)) ||
         (req.itemTitle && req.itemTitle.toLowerCase().includes(normalizedQuery)) ||
         req.status.toLowerCase().includes(normalizedQuery)
     );
   }, [requests, normalizedQuery]);
+
+  const filteredPurchaseRequests = useMemo(() => {
+    if (!normalizedQuery) return purchaseRequests;
+    return purchaseRequests.filter(
+      (req) =>
+        req.itemTitle.toLowerCase().includes(normalizedQuery) ||
+        req.borrowerName.toLowerCase().includes(normalizedQuery) ||
+        req.borrowerId.toLowerCase().includes(normalizedQuery) ||
+        req.lenderName.toLowerCase().includes(normalizedQuery) ||
+        req.lenderId.toLowerCase().includes(normalizedQuery) ||
+        req.status.toLowerCase().includes(normalizedQuery)
+    );
+  }, [purchaseRequests, normalizedQuery]);
 
   async function handleGrantSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -137,7 +162,8 @@ export function AdminDashboardPanel({
               Administrator: {currentUserEmail || currentUserId}
             </p>
             <p className="text-xs text-slate-500">
-              Full moderation access across shared items, campus requests, and admin accounts.
+              Full moderation access across shared items, private borrow & purchase requests, and
+              admin accounts.
             </p>
           </div>
         </div>
@@ -158,18 +184,21 @@ export function AdminDashboardPanel({
           </p>
         </div>
         <div className="p-5">
-          <p className="text-xs font-medium text-slate-500">Campus Requests</p>
+          <p className="text-xs font-medium text-slate-500">Borrow Requests</p>
           <p className="mt-1.5 font-display text-2xl font-bold text-slate-900 tabular-nums">
-            {stats.totalRequests}
+            {stats.totalBorrowRequests}
           </p>
           <p className="mt-0.5 text-xs text-slate-500 tabular-nums">
-            {stats.openRequests} currently open
+            {stats.pendingBorrow} pending
           </p>
         </div>
         <div className="p-5">
-          <p className="text-xs font-medium text-slate-500">Student Profiles</p>
+          <p className="text-xs font-medium text-slate-500">Purchase Requests</p>
           <p className="mt-1.5 font-display text-2xl font-bold text-slate-900 tabular-nums">
-            {stats.totalProfiles}
+            {stats.totalPurchaseRequests}
+          </p>
+          <p className="mt-0.5 text-xs text-slate-500 tabular-nums">
+            {stats.pendingPurchase} pending
           </p>
         </div>
         <div className="p-5">
@@ -186,7 +215,11 @@ export function AdminDashboardPanel({
         {(
           [
             { id: 'items', label: `All Items (${filteredItems.length})` },
-            { id: 'requests', label: `All Requests (${filteredRequests.length})` },
+            { id: 'borrow-requests', label: `Borrow Requests (${filteredBorrowRequests.length})` },
+            {
+              id: 'purchase-requests',
+              label: `Purchase Requests (${filteredPurchaseRequests.length})`,
+            },
             { id: 'admins', label: `Admin Access (${adminUids.length + 1})` },
           ] as const
         ).map((tab) => (
@@ -206,8 +239,8 @@ export function AdminDashboardPanel({
       </div>
 
       {/* Moderation Items List */}
-      {section === 'items' && (
-        filteredItems.length === 0 ? (
+      {section === 'items' &&
+        (filteredItems.length === 0 ? (
           <div className="bg-white border border-slate-200 rounded-2xl p-10 text-center max-w-xl mx-auto">
             <div className="w-11 h-11 rounded-xl bg-slate-100 text-slate-600 flex items-center justify-center mx-auto">
               {normalizedQuery ? (
@@ -324,25 +357,24 @@ export function AdminDashboardPanel({
               );
             })}
           </div>
-        )
-      )}
+        ))}
 
-      {/* Moderation Requests List */}
-      {section === 'requests' && (
-        filteredRequests.length === 0 ? (
+      {/* Moderation Borrow Requests List */}
+      {section === 'borrow-requests' &&
+        (filteredBorrowRequests.length === 0 ? (
           <div className="bg-white border border-slate-200 rounded-2xl p-10 text-center max-w-xl mx-auto">
             <h3 className="font-display text-lg font-semibold text-slate-900">
-              {normalizedQuery ? 'No matching requests' : 'No shared requests in database'}
+              {normalizedQuery ? 'No matching borrow requests' : 'No borrow requests in database'}
             </h3>
             <p className="mt-2 text-sm text-slate-600">
               {normalizedQuery
-                ? `No requests matched “${searchQuery.trim()}”.`
-                : 'Campus requests posted by students will appear here.'}
+                ? `No borrow requests matched “${searchQuery.trim()}”.`
+                : 'Private borrow requests between students appear here for admin review.'}
             </p>
           </div>
         ) : (
           <div className="bg-white border border-slate-200 rounded-2xl divide-y divide-slate-200 overflow-hidden">
-            {filteredRequests.map((req) => {
+            {filteredBorrowRequests.map((req) => {
               const isDeletingThis = deletingId === req.id;
               return (
                 <article
@@ -363,12 +395,21 @@ export function AdminDashboardPanel({
                     </div>
                     <p className="text-sm font-medium text-slate-900">{req.description}</p>
                     <p className="text-xs text-slate-600">
-                      Requester: <span className="font-medium text-slate-900">{req.requesterName}</span>{' '}
-                      ({req.requesterPhone})
-                      {req.acceptedByName && ` · Accepted by ${req.acceptedByName}`}
+                      Borrower:{' '}
+                      <span className="font-medium text-slate-900">{req.requesterName}</span> (
+                      {req.requesterPhone})
+                      {req.acceptedByName && (
+                        <>
+                          {' '}
+                          · Lender:{' '}
+                          <span className="font-medium text-slate-900">{req.acceptedByName}</span>
+                          {req.acceptedByPhone ? ` (${req.acceptedByPhone})` : ''}
+                        </>
+                      )}
                     </p>
                     <p className="text-[11px] font-mono text-slate-500 break-all">
-                      Requester UID: {req.requesterId}
+                      Borrower UID: {req.requesterId}
+                      {req.acceptedById ? ` · Lender UID: ${req.acceptedById}` : ''}
                     </p>
                   </div>
 
@@ -391,8 +432,60 @@ export function AdminDashboardPanel({
               );
             })}
           </div>
-        )
-      )}
+        ))}
+
+      {/* Moderation Purchase Requests List */}
+      {section === 'purchase-requests' &&
+        (filteredPurchaseRequests.length === 0 ? (
+          <div className="bg-white border border-slate-200 rounded-2xl p-10 text-center max-w-xl mx-auto">
+            <h3 className="font-display text-lg font-semibold text-slate-900">
+              {normalizedQuery
+                ? 'No matching purchase requests'
+                : 'No purchase requests in database'}
+            </h3>
+            <p className="mt-2 text-sm text-slate-600">
+              {normalizedQuery
+                ? `No purchase requests matched “${searchQuery.trim()}”.`
+                : 'Private permanent-sale purchase requests appear here for admin review.'}
+            </p>
+          </div>
+        ) : (
+          <div className="bg-white border border-slate-200 rounded-2xl divide-y divide-slate-200 overflow-hidden">
+            {filteredPurchaseRequests.map((req) => (
+              <article
+                key={req.id}
+                className="p-5 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-slate-50/50 transition-colors"
+              >
+                <div className="min-w-0 space-y-1">
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-slate-500">
+                    <span className="font-semibold text-slate-900">{req.status}</span>
+                    <span aria-hidden="true">·</span>
+                    <span className="font-medium text-emerald-700 tabular-nums">
+                      {formatInr(req.finalAmount)}
+                    </span>
+                    <span aria-hidden="true">·</span>
+                    <span className="tabular-nums">{formatTimestamp(req.createdAtMs)}</span>
+                  </div>
+                  <p className="text-sm font-semibold text-slate-900">{req.itemTitle}</p>
+                  <p className="text-xs text-slate-600">
+                    Borrower:{' '}
+                    <span className="font-medium text-slate-900">{req.borrowerName}</span> (
+                    {req.borrowerPhone}) · Lender:{' '}
+                    <span className="font-medium text-slate-900">{req.lenderName}</span> (
+                    {req.lenderPhone})
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    Confirmations — Borrower: {req.borrowerConfirmed ? 'Payment made' : 'Pending'} ·
+                    Lender: {req.lenderConfirmed ? 'Payment received' : 'Pending'}
+                  </p>
+                  <p className="text-[11px] font-mono text-slate-500 break-all">
+                    Borrower UID: {req.borrowerId} · Lender UID: {req.lenderId}
+                  </p>
+                </div>
+              </article>
+            ))}
+          </div>
+        ))}
 
       {/* Admin Access Management */}
       {section === 'admins' && (
@@ -403,7 +496,10 @@ export function AdminDashboardPanel({
               className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-950 flex items-start justify-between gap-3"
             >
               <div className="flex items-start gap-2.5">
-                <CheckCircle2 className="w-5 h-5 text-emerald-700 shrink-0 mt-0.5" aria-hidden="true" />
+                <CheckCircle2
+                  className="w-5 h-5 text-emerald-700 shrink-0 mt-0.5"
+                  aria-hidden="true"
+                />
                 <span>{adminStatusMessage}</span>
               </div>
               <button

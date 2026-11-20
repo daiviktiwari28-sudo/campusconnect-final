@@ -4,9 +4,9 @@ import {
   doc,
   onSnapshot,
   query,
+  runTransaction,
   serverTimestamp,
   Timestamp,
-  updateDoc,
   where,
   writeBatch,
 } from 'firebase/firestore';
@@ -95,10 +95,12 @@ function getLockDocId(itemId: string, borrowerId: string): string {
 export function usePurchaseRequests(
   user: CampusUser,
   displayName: string,
-  userPhone: string | null
+  userPhone: string | null,
+  isAdmin: boolean
 ) {
   const [borrowerRequests, setBorrowerRequests] = useState<PurchaseRequest[]>([]);
   const [lenderRequests, setLenderRequests] = useState<PurchaseRequest[]>([]);
+  const [allAdminPurchaseRequests, setAllAdminPurchaseRequests] = useState<PurchaseRequest[]>([]);
   const [purchaseRequestsLoading, setPurchaseRequestsLoading] = useState<boolean>(
     Boolean(db && isFirebaseConfigured)
   );
@@ -196,6 +198,35 @@ export function usePurchaseRequests(
     };
   }, [user.uid]);
 
+  useEffect(() => {
+    if (!db || !isFirebaseConfigured || !user.uid || !isAdmin) {
+      setAllAdminPurchaseRequests([]);
+      return;
+    }
+
+    const adminQuery = query(collection(db, PURCHASE_REQUESTS_COLLECTION));
+    const unsubscribe = onSnapshot(
+      adminQuery,
+      (snapshot) => {
+        const mapped = snapshot.docs
+          .map((d) => mapPurchaseRequestDoc(d.id, d.data()))
+          .sort((a, b) => b.updatedAtMs - a.updatedAtMs);
+        setAllAdminPurchaseRequests(mapped);
+      },
+      (err) => {
+        try {
+          handleFirestoreError(err, OperationType.LIST, PURCHASE_REQUESTS_COLLECTION);
+        } catch {
+          // Logged by handleFirestoreError
+        }
+      }
+    );
+
+    return () => {
+      unsubscribe();
+    };
+  }, [isAdmin, user.uid]);
+
   const purchaseRequests = useMemo<PurchaseRequest[]>(() => {
     const byId = new Map<string, PurchaseRequest>();
     for (const req of borrowerRequests) byId.set(req.id, req);
@@ -209,14 +240,6 @@ export function usePurchaseRequests(
 
   const pendingPurchaseRequests = useMemo(
     () => purchaseRequests.filter((req) => req.status === 'Pending'),
-    [purchaseRequests]
-  );
-
-  const completedPurchaseRequests = useMemo(
-    () =>
-      purchaseRequests
-        .filter((req) => req.status === 'Completed')
-        .sort((a, b) => (b.completedAtMs ?? b.updatedAtMs) - (a.completedAtMs ?? a.updatedAtMs)),
     [purchaseRequests]
   );
 
@@ -321,7 +344,7 @@ export function usePurchaseRequests(
         await batch.commit();
 
         setPurchaseStatusMessage(
-          `Purchase request sent to ${safeLenderName} for “${item.title}”. Contact each other to settle payment, then both confirm.`
+          `Purchase request sent privately to ${safeLenderName} for “${item.title}”. Contact each other to settle payment, then both confirm.`
         );
         return true;
       } catch (err) {
@@ -361,23 +384,12 @@ export function usePurchaseRequests(
         return false;
       }
 
-      const isBorrower = req.borrowerId === user.uid;
-      const isLender = req.lenderId === user.uid;
-
-      if (!isBorrower && !isLender) {
+      if (req.borrowerId !== user.uid && req.lenderId !== user.uid) {
         setPurchaseError('Only the involved borrower and lender can confirm this request.');
         return false;
       }
 
-      const alreadyConfirmed = isBorrower ? req.borrowerConfirmed : req.lenderConfirmed;
-      if (alreadyConfirmed) {
-        return true;
-      }
-
-      const otherAlreadyConfirmed = isBorrower ? req.lenderConfirmed : req.borrowerConfirmed;
-
-      let agreedAmount = req.finalAmount;
-      if (!otherAlreadyConfirmed && typeof negotiatedFinalAmount === 'number') {
+      if (typeof negotiatedFinalAmount === 'number') {
         if (
           !Number.isFinite(negotiatedFinalAmount) ||
           negotiatedFinalAmount < PAYMENT_LIMITS.minPrice ||
@@ -388,103 +400,165 @@ export function usePurchaseRequests(
           );
           return false;
         }
-        agreedAmount = Math.round(negotiatedFinalAmount * 100) / 100;
       }
 
+      const firestoreDb = db;
       setUpdatingPurchaseId(req.id);
       setPurchaseError(null);
       setPurchaseStatusMessage(null);
 
       try {
-        const requestRef = doc(db, PURCHASE_REQUESTS_COLLECTION, req.id);
-
-        if (!otherAlreadyConfirmed) {
-          if (isBorrower) {
-            await updateDoc(requestRef, {
-              borrowerConfirmed: true,
-              borrowerConfirmedAt: serverTimestamp(),
-              finalAmount: agreedAmount,
-              updatedAt: serverTimestamp(),
-            });
-            setPurchaseStatusMessage(
-              `Marked “Payment made” for “${req.itemTitle}”. Waiting for ${req.lenderName} to confirm “Payment received”.`
-            );
-          } else {
-            await updateDoc(requestRef, {
-              lenderConfirmed: true,
-              lenderConfirmedAt: serverTimestamp(),
-              finalAmount: agreedAmount,
-              updatedAt: serverTimestamp(),
-            });
-            setPurchaseStatusMessage(
-              `Marked “Payment received” for “${req.itemTitle}”. Waiting for ${req.borrowerName} to confirm “Payment made”.`
-            );
-          }
-          return true;
-        }
-
-        // Second & final confirmation: complete purchase request, mark item Sold, and release active lock atomically.
-        const itemRef = doc(db, ITEMS_COLLECTION, req.itemId);
+        const requestRef = doc(firestoreDb, PURCHASE_REQUESTS_COLLECTION, req.id);
+        const itemRef = doc(firestoreDb, ITEMS_COLLECTION, req.itemId);
         const lockRef = doc(
-          db,
+          firestoreDb,
           PURCHASE_LOCKS_COLLECTION,
           getLockDocId(req.itemId, req.borrowerId)
         );
-        const batch = writeBatch(db);
 
-        if (isBorrower) {
-          batch.update(requestRef, {
-            borrowerConfirmed: true,
-            borrowerConfirmedAt: serverTimestamp(),
-            status: 'Completed',
-            completedAt: serverTimestamp(),
-            updatedAt: serverTimestamp(),
-          });
-        } else {
-          batch.update(requestRef, {
-            lenderConfirmed: true,
-            lenderConfirmedAt: serverTimestamp(),
-            status: 'Completed',
-            completedAt: serverTimestamp(),
-            updatedAt: serverTimestamp(),
-          });
-        }
+        const outcome = await runTransaction(firestoreDb, async (transaction) => {
+          // Read all involved documents before any writes
+          const [requestSnap, itemSnap, lockSnap] = await Promise.all([
+            transaction.get(requestRef),
+            transaction.get(itemRef),
+            transaction.get(lockRef),
+          ]);
 
-        batch.update(itemRef, {
-          status: 'Sold',
-          soldToId: req.borrowerId,
-          soldToName: req.borrowerName,
-          paymentId: req.id,
-          updatedAt: serverTimestamp(),
+          if (!requestSnap.exists()) {
+            throw new Error('REQUEST_NOT_FOUND');
+          }
+
+          const data = requestSnap.data();
+          if (data.status !== 'Pending') {
+            throw new Error('NOT_PENDING');
+          }
+
+          const isBorrower = data.borrowerId === user.uid;
+          const isLender = data.lenderId === user.uid;
+          if (!isBorrower && !isLender) {
+            throw new Error('UNAUTHORIZED');
+          }
+
+          const prevBorrowerConfirmed = data.borrowerConfirmed === true;
+          const prevLenderConfirmed = data.lenderConfirmed === true;
+
+          if ((isBorrower && prevBorrowerConfirmed) || (isLender && prevLenderConfirmed)) {
+            return { completed: false, alreadyConfirmed: true, isBorrower };
+          }
+
+          const otherConfirmed = isBorrower ? prevLenderConfirmed : prevBorrowerConfirmed;
+
+          if (!otherConfirmed) {
+            const currentFinal =
+              typeof data.finalAmount === 'number' && Number.isFinite(data.finalAmount)
+                ? data.finalAmount
+                : req.finalAmount;
+            const agreedAmount =
+              typeof negotiatedFinalAmount === 'number'
+                ? Math.round(negotiatedFinalAmount * 100) / 100
+                : currentFinal;
+
+            if (isBorrower) {
+              transaction.update(requestRef, {
+                borrowerConfirmed: true,
+                borrowerConfirmedAt: serverTimestamp(),
+                finalAmount: agreedAmount,
+                updatedAt: serverTimestamp(),
+              });
+            } else {
+              transaction.update(requestRef, {
+                lenderConfirmed: true,
+                lenderConfirmedAt: serverTimestamp(),
+                finalAmount: agreedAmount,
+                updatedAt: serverTimestamp(),
+              });
+            }
+
+            return { completed: false, alreadyConfirmed: false, isBorrower };
+          }
+
+          // Second & final confirmation: complete purchase request, mark item Sold if still available, release lock
+          if (isBorrower) {
+            transaction.update(requestRef, {
+              borrowerConfirmed: true,
+              borrowerConfirmedAt: serverTimestamp(),
+              status: 'Completed',
+              completedAt: serverTimestamp(),
+              updatedAt: serverTimestamp(),
+            });
+          } else {
+            transaction.update(requestRef, {
+              lenderConfirmed: true,
+              lenderConfirmedAt: serverTimestamp(),
+              status: 'Completed',
+              completedAt: serverTimestamp(),
+              updatedAt: serverTimestamp(),
+            });
+          }
+
+          if (itemSnap.exists()) {
+            const itemData = itemSnap.data();
+            if (
+              itemData.listingType === 'sell' &&
+              itemData.status === 'Available' &&
+              itemData.authorId === data.lenderId
+            ) {
+              transaction.update(itemRef, {
+                status: 'Sold',
+                soldToId: data.borrowerId,
+                soldToName: data.borrowerName,
+                paymentId: req.id,
+                updatedAt: serverTimestamp(),
+              });
+            }
+          }
+
+          if (lockSnap.exists()) {
+            transaction.delete(lockRef);
+          }
+
+          return { completed: true, alreadyConfirmed: false, isBorrower };
         });
 
-        batch.delete(lockRef);
+        if (outcome.alreadyConfirmed) {
+          return true;
+        }
 
-        await batch.commit();
+        if (outcome.completed) {
+          setPurchaseStatusMessage(
+            `Purchase completed! Both confirmations are recorded for “${req.itemTitle}” and ratings are now unlocked.`
+          );
+        } else if (outcome.isBorrower) {
+          setPurchaseStatusMessage(
+            `Marked “Payment made” for “${req.itemTitle}”. Waiting for ${req.lenderName} to confirm “Payment received”.`
+          );
+        } else {
+          setPurchaseStatusMessage(
+            `Marked “Payment received” for “${req.itemTitle}”. Waiting for ${req.borrowerName} to confirm “Payment made”.`
+          );
+        }
 
-        setPurchaseStatusMessage(
-          `Purchase completed! “${req.itemTitle}” is now marked Sold and recorded in Transactions.`
-        );
         return true;
       } catch (err) {
+        if (err instanceof Error && err.message === 'REQUEST_NOT_FOUND') {
+          setPurchaseError('This purchase request is no longer available.');
+          return false;
+        }
+        if (err instanceof Error && err.message === 'NOT_PENDING') {
+          setPurchaseError('This purchase request has already been completed or cancelled.');
+          return false;
+        }
+        if (err instanceof Error && err.message === 'UNAUTHORIZED') {
+          setPurchaseError('Only the involved borrower and lender can confirm this request.');
+          return false;
+        }
+
         try {
           handleFirestoreError(err, OperationType.UPDATE, `${PURCHASE_REQUESTS_COLLECTION}/${req.id}`);
         } catch {
           // Logged by handleFirestoreError
         }
-        const code =
-          typeof err === 'object' && err !== null && 'code' in err
-            ? String((err as { code?: unknown }).code)
-            : '';
-        if (code === 'permission-denied') {
-          setPurchaseError(
-            otherAlreadyConfirmed
-              ? 'Could not complete purchase — this item may already have been sold or removed. You can cancel this pending request.'
-              : 'Could not record confirmation right now. Please try again.'
-          );
-        } else {
-          setPurchaseError('Could not update purchase confirmation right now. Please try again.');
-        }
+        setPurchaseError('Could not update purchase confirmation right now. Please try again.');
         return false;
       } finally {
         setUpdatingPurchaseId(null);
@@ -505,42 +579,65 @@ export function usePurchaseRequests(
         return false;
       }
 
-      const isBorrower = req.borrowerId === user.uid;
-      const isLender = req.lenderId === user.uid;
-
-      if (!isBorrower && !isLender) {
+      if (req.borrowerId !== user.uid && req.lenderId !== user.uid) {
         setPurchaseError('Only the involved borrower and lender can cancel this request.');
         return false;
       }
 
+      const firestoreDb = db;
       setUpdatingPurchaseId(req.id);
       setPurchaseError(null);
       setPurchaseStatusMessage(null);
 
       try {
-        const requestRef = doc(db, PURCHASE_REQUESTS_COLLECTION, req.id);
+        const requestRef = doc(firestoreDb, PURCHASE_REQUESTS_COLLECTION, req.id);
         const lockRef = doc(
-          db,
+          firestoreDb,
           PURCHASE_LOCKS_COLLECTION,
           getLockDocId(req.itemId, req.borrowerId)
         );
-        const batch = writeBatch(db);
 
-        batch.update(requestRef, {
-          status: 'Cancelled',
-          cancelledAt: serverTimestamp(),
-          cancelledById: user.uid,
-          cancelledByRole: isBorrower ? 'borrower' : 'lender',
-          updatedAt: serverTimestamp(),
+        await runTransaction(firestoreDb, async (transaction) => {
+          const [requestSnap, lockSnap] = await Promise.all([
+            transaction.get(requestRef),
+            transaction.get(lockRef),
+          ]);
+
+          if (!requestSnap.exists()) {
+            throw new Error('REQUEST_NOT_FOUND');
+          }
+
+          const data = requestSnap.data();
+          if (data.status !== 'Pending') {
+            throw new Error('NOT_PENDING');
+          }
+
+          const isBorrower = data.borrowerId === user.uid;
+          const isLender = data.lenderId === user.uid;
+          if (!isBorrower && !isLender) {
+            throw new Error('UNAUTHORIZED');
+          }
+
+          transaction.update(requestRef, {
+            status: 'Cancelled',
+            cancelledAt: serverTimestamp(),
+            cancelledById: user.uid,
+            cancelledByRole: isBorrower ? 'borrower' : 'lender',
+            updatedAt: serverTimestamp(),
+          });
+
+          if (lockSnap.exists()) {
+            transaction.delete(lockRef);
+          }
         });
-
-        batch.delete(lockRef);
-
-        await batch.commit();
 
         setPurchaseStatusMessage(`Purchase request for “${req.itemTitle}” has been cancelled.`);
         return true;
       } catch (err) {
+        if (err instanceof Error && err.message === 'NOT_PENDING') {
+          setPurchaseError('This purchase request is already completed or cancelled.');
+          return false;
+        }
         try {
           handleFirestoreError(err, OperationType.UPDATE, `${PURCHASE_REQUESTS_COLLECTION}/${req.id}`);
         } catch {
@@ -570,7 +667,7 @@ export function usePurchaseRequests(
   return {
     purchaseRequests,
     pendingPurchaseRequests,
-    completedPurchaseRequests,
+    allAdminPurchaseRequests,
     purchaseRequestsLoading,
     submittingPurchaseRequest,
     updatingPurchaseId,
